@@ -1,0 +1,23 @@
+# Rust
+target/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*
+
+# AI scaffolding
+.claude/
+AGENTS.md
+AUDIT_REPORT.md
+testing.md

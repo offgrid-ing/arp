@@ -1,0 +1,72 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/arps",
+    "crates/arpc",
+    "crates/arp-common",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# WebSocket
+tokio-tungstenite = "0.24"
+tungstenite = "0.24"
+
+# Cryptography
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+bs58 = "0.5"
+
+# Noise protocol
+snow = "0.9"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+base64 = "0.22"
+
+# HTTP / metrics
+axum = "0.7"
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Concurrency
+dashmap = "6"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Config
+config = "0.14"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1"
+async-trait = "0.1"
+lru = "0.12"
+dirs = "5"
+futures-util = "0.3"
+
+sha2 = "0.10"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+# Testing
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }

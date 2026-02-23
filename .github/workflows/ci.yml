@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - run: cargo deny check
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/audit@v1
+
+  build-arpc:
+    name: Build arpc (${{ matrix.target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: arpc-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: arpc-linux-aarch64
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            binary: arpc-darwin-x86_64
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            binary: arpc-darwin-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build arpc
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p arpc
+          else
+            cargo build --release --target ${{ matrix.target }} -p arpc
+          fi
+
+      - name: Package
+        run: |
+          cp target/${{ matrix.target }}/release/arpc ${{ matrix.binary }}
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
+          else
+            shasum -a 256 ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: |
+            ${{ matrix.binary }}
+            ${{ matrix.binary }}.sha256
+
+  build-arps:
+    name: Build arps (${{ matrix.target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: arps-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            binary: arps-linux-aarch64
+            cross: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-arps
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build arps
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p arps
+          else
+            cargo build --release --target ${{ matrix.target }} -p arps
+          fi
+
+      - name: Package
+        run: |
+          cp target/${{ matrix.target }}/release/arps ${{ matrix.binary }}
+          sha256sum ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: |
+            ${{ matrix.binary }}
+            ${{ matrix.binary }}.sha256
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-arpc, build-arps, audit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            arpc-*
+            arps-*
