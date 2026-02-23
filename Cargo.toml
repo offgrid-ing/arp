@@ -60,7 +60,7 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
 async-trait = "0.1"
-lru = "0.12"
+lru = "0.16"
 dirs = "5"
 futures-util = "0.3"
 
