@@ -202,26 +202,36 @@ check_port_conflict() {
     fi
     
     if [ -n "$existing_pid" ]; then
-        existing_user=$(ps -o user= -p "$existing_pid" 2>/dev/null || echo "unknown")
-        existing_user=$(echo "$existing_user" | tr -d ' ')
+        # Check if the existing process is arpc (upgrade scenario)
+        local existing_cmd
+        existing_cmd=$(ps -o comm= -p "$existing_pid" 2>/dev/null || echo "")
         
-        warn "Port ${port} is already in use by PID ${existing_pid} (user: ${existing_user})"
-        
-        # Cross-user conflict detection
-        if [ "$current_user" != "root" ] && [ "$existing_user" = "root" ]; then
-            fail "Cannot install as '$current_user': root-owned arpc is using port ${port}.\n  → Run: sudo pkill arpc\n  → Or install as: sudo curl -fsSL https://arp.offgrid.ing/install.sh | bash"
-        fi
-        
-        if [ "$current_user" = "root" ] && [ "$existing_user" != "root" ] && [ "$existing_user" != "$current_user" ]; then
-            warn "Killing non-root arpc process (user: $existing_user)..."
-            kill -9 "$existing_pid" 2>/dev/null || true
-            sleep 1
-        elif [ "$FORCE" = true ]; then
-            warn "Force mode: killing existing arpc process..."
-            kill -9 "$existing_pid" 2>/dev/null || true
+        if [ "$existing_cmd" = "arpc" ]; then
+            # Upgrade: stop existing arpc gracefully
+            warn "Existing arpc detected (PID ${existing_pid}), stopping for upgrade..."
+            if [ "$(id -u)" -eq 0 ]; then
+                systemctl stop arpc 2>/dev/null || true
+            else
+                systemctl --user stop arpc 2>/dev/null || true
+            fi
+            kill "$existing_pid" 2>/dev/null || true
             sleep 1
         else
-            fail "Port ${port} is already in use.\n  → Stop existing arpc: pkill arpc\n  → Or use --force to auto-kill"
+            existing_user=$(ps -o user= -p "$existing_pid" 2>/dev/null || echo "unknown")
+            existing_user=$(echo "$existing_user" | tr -d ' ')
+            warn "Port ${port} is already in use by PID ${existing_pid} (user: ${existing_user})"
+            # Cross-user conflict detection
+            if [ "$current_user" != "root" ] && [ "$existing_user" = "root" ]; then
+                fail "Cannot install as '$current_user': root-owned process is using port ${port}.\n  → Run: sudo pkill arpc\n  → Or install as: sudo curl -fsSL https://arp.offgrid.ing/install.sh | bash"
+            fi
+            
+            if [ "$FORCE" = true ]; then
+                warn "Force mode: killing existing process..."
+                kill -9 "$existing_pid" 2>/dev/null || true
+                sleep 1
+            else
+                fail "Port ${port} is already in use by non-arpc process.\n  → Stop it manually, or use --force"
+            fi
         fi
     fi
     
@@ -230,11 +240,6 @@ check_port_conflict() {
     if command -v lsof >/dev/null 2>&1 && lsof -t -i:${port} >/dev/null 2>&1; then
         fail "Port ${port} still in use after kill attempt"
     fi
-}
-
-check_port_available() {
-    # Deprecated: use check_port_conflict instead
-    check_port_conflict
 }
 
 setup_service() {
@@ -322,6 +327,18 @@ EOF
             fail "Failed to start user service. Check: journalctl --user -u arpc -n 10"
         fi
         ok "User service started"
+        # Enable linger so user service survives SSH disconnect
+        if command -v loginctl >/dev/null 2>&1; then
+            local linger_status
+            linger_status=$(loginctl show-user "$(id -un)" --property=Linger 2>/dev/null || echo "Linger=no")
+            if [ "$linger_status" != "Linger=yes" ]; then
+                if loginctl enable-linger "$(id -un)" 2>/dev/null; then
+                    ok "Enabled linger (service persists after logout)"
+                else
+                    warn "Could not enable linger — service may stop on logout. Run: sudo loginctl enable-linger $(id -un)"
+                fi
+            fi
+        fi
     fi
     
     # Verify service actually started and connected
