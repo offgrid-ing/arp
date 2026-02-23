@@ -137,7 +137,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arp-common"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "bs58",
  "criterion",
@@ -145,12 +145,12 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "sha2",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "arpc"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "arp-common",
@@ -169,7 +169,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "snow",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "toml",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "arps"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "arp-common",
@@ -193,7 +193,7 @@ dependencies = [
  "rand 0.8.5",
  "rustls",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "tracing",
