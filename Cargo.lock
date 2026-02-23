@@ -137,7 +137,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "arp-common"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "bs58",
  "criterion",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "arpc"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "arp-common",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "arps"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "arp-common",
@@ -450,9 +450,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.43"
+version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fac4744fb15ae8337dc853fee7fb3f4e48c0fbaa23d0afe49c447b4fab126118"
+checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
 dependencies = [
  "iana-time-zone",
  "js-sys",
