@@ -194,11 +194,11 @@ check_port_conflict() {
     
     # Find process using the port
     if command -v lsof >/dev/null 2>&1; then
-        existing_pid=$(lsof -t -i:${port} 2>/dev/null | head -1)
+        existing_pid=$(lsof -t -i:${port} 2>/dev/null | head -1) || true
     elif command -v ss >/dev/null 2>&1; then
-        existing_pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | grep -oP 'pid=\K[0-9]+' | head -1)
+        existing_pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | grep -oP 'pid=\K[0-9]+' | head -1) || true
     elif command -v netstat >/dev/null 2>&1; then
-        existing_pid=$(netstat -tlnp 2>/dev/null | grep ":${port} " | awk '{print $7}' | cut -d'/' -f1 | head -1)
+        existing_pid=$(netstat -tlnp 2>/dev/null | grep ":${port} " | awk '{print $7}' | cut -d'/' -f1 | head -1) || true
     fi
     
     if [ -n "$existing_pid" ]; then
