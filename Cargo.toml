@@ -25,7 +25,7 @@ rand = "0.8"
 bs58 = "0.5"
 
 # Noise protocol
-snow = "0.9"
+snow = "0.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
