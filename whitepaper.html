@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARP Whitepaper | Agent Relay Protocol</title>
+    
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90' text-anchor='middle' x='50' fill='%2300E5FF'%3E◈%3C/text%3E%3C/svg%3E" />
+    
+    <!-- Theme setup script to prevent FOUC -->
+    <script data-cfasync="false">
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+
+    <!-- Fonts: Inter for UI, JetBrains Mono for Code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script data-cfasync="false" src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Tailwind Config with Dynamic Theme Variables -->
+    <script data-cfasync="false">
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        background: 'var(--bg-main)',
+                        surface: 'var(--bg-surface)',
+                        panel: 'var(--bg-panel)',
+                        border: 'var(--border-color)',
+                        textMain: 'var(--text-main)',
+                        textMuted: 'var(--text-muted)',
+                        textDim: 'var(--text-dim)',
+                        accent: {
+                            cyan: '#00E5FF',
+                            cyanDark: '#0097A7',
+                            purple: '#8A2BE2',
+                            orange: '#FF5500',
+                            green: '#00C853'
+                        }
+                    },
+                    letterSpacing: {
+                        tightest: '-0.04em',
+                    },
+                    boxShadow: {
+                        'glow': '0 0 40px var(--shadow-glow)',
+                        'glow-sm': '0 0 20px var(--shadow-glow)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Light/Dark Mode Variables */
+        :root {
+            --bg-main: #FAFAFA;
+            --bg-surface: #FFFFFF;
+            --bg-panel: #F4F4F5;
+            --border-color: #E4E4E7;
+            --text-main: #09090B;
+            --text-muted: #52525B;
+            --text-dim: #A1A1AA;
+            --shadow-glow: rgba(0, 229, 255, 0.15);
+            --hero-gradient-start: #000000;
+            --hero-gradient-end: #666666;
+            --radial-overlay: radial-gradient(circle at top center, #FFFFFF 0%, #FAFAFA 70%);
+        }
+
+        .dark {
+            --bg-main: #000000;
+            --bg-surface: #0A0A0A;
+            --bg-panel: #111111;
+            --border-color: #222222;
+            --text-main: #FFFFFF;
+            --text-muted: #A1A1AA;
+            --text-dim: #71717A;
+            --shadow-glow: rgba(0, 229, 255, 0.12);
+            --hero-gradient-start: #FFFFFF;
+            --hero-gradient-end: #888888;
+            --radial-overlay: radial-gradient(circle at top center, #111111 0%, #000000 70%);
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Minimalist Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-main); }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+        .radial-mask {
+            background: var(--radial-overlay);
+        }
+
+        /* Custom Markdown Styling Elements */
+        .prose-custom p {
+            margin-bottom: 1.5rem;
+            line-height: 1.75;
+            color: var(--text-muted);
+        }
+        .prose-custom h2 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-top: 3rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            letter-spacing: -0.02em;
+        }
+        @media (min-width: 640px) {
+            .prose-custom h2 { font-size: 1.875rem; }
+        }
+        .prose-custom h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            letter-spacing: -0.01em;
+        }
+        .prose-custom ul {
+            list-style-type: none;
+            margin-bottom: 1.5rem;
+            padding-left: 0.5rem;
+        }
+        .prose-custom ul > li {
+            position: relative;
+            padding-left: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+        .prose-custom ul > li::before {
+            content: '◈';
+            position: absolute;
+            left: 0;
+            top: 0.1rem;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+        }
+        .prose-custom strong {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+        .prose-custom a {
+            color: var(--tw-colors-accent-cyan);
+            text-decoration: underline;
+            text-decoration-color: rgba(0, 229, 255, 0.3);
+            text-underline-offset: 4px;
+            transition: all 0.2s;
+        }
+        .prose-custom a:hover {
+            text-decoration-color: var(--tw-colors-accent-cyan);
+        }
+
+        /* Syntax block formatting */
+        .code-block {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin: 2rem 0;
+            overflow-x: auto;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .dark .code-block {
+            background-color: #050505;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+        }
+
+        /* Inline code */
+        code.inline-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            background-color: var(--bg-panel);
+            color: var(--text-main);
+            padding: 0.2em 0.4em;
+            border-radius: 0.375rem;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Table styling */
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            margin: 2rem 0;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            background-color: var(--bg-surface);
+        }
+        .prose-custom table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .prose-custom th {
+            background-color: var(--bg-panel);
+            padding: 1rem;
+            font-weight: 600;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .prose-custom td {
+            padding: 1rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .prose-custom tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* TOC Active State */
+        .toc-link.active {
+            color: var(--tw-colors-accent-cyan);
+            font-weight: 700;
+        }
+        .toc-link.active::before {
+            content: '';
+            position: absolute;
+            left: -1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px;
+            height: 4px;
+            background-color: var(--tw-colors-accent-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--tw-colors-accent-cyan);
+        }
+        .toc-item {
+            position: relative;
+        }
+    </style>
+</head>
+<body class="font-sans overflow-x-hidden selection:bg-textMain selection:text-background relative">
+
+    <!-- Background Gradient -->
+    <div class="fixed inset-0 radial-mask z-[-1] pointer-events-none"></div>
+
+    <!-- Clean Inline Logo Header -->
+    <div class="absolute top-6 left-6 sm:top-8 sm:left-10 z-50">
+        <a href="index.html" class="font-sans font-bold text-sm sm:text-base tracking-widest text-textMain flex items-center gap-2 select-none hover:opacity-80 transition-opacity group">
+            <span class="text-accent-cyan text-xl -mt-1 drop-shadow-[0_0_8px_rgba(0,229,255,0.5)] group-hover:-translate-x-1 transition-transform">◈</span> 
+            <span class="tracking-widest">ARP</span> 
+        </a>
+    </div>
+
+    <!-- Theme Toggle -->
+    <div class="absolute top-6 right-6 sm:top-8 sm:right-10 z-50 flex items-center gap-4">
+        <a href="index.html" class="hidden sm:flex text-[11px] font-mono uppercase tracking-widest text-textDim hover:text-textMain transition-colors items-center gap-1.5 font-semibold">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back to Home
+        </a>
+        <button id="themeToggle" class="w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-textMuted hover:text-textMain hover:border-textDim transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-border focus:ring-offset-2 focus:ring-offset-background">
+            <i data-lucide="moon" class="w-4 h-4 hidden dark:block"></i>
+            <i data-lucide="sun" class="w-4 h-4 block dark:hidden"></i>
+        </button>
+    </div>
+
+    <!-- Main Content Layout -->
+    <main class="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-24 flex flex-col lg:flex-row gap-12 lg:gap-20 items-start">
+        
+        <!-- Desktop Sidebar (TOC) -->
+        <aside class="hidden lg:block w-64 shrink-0 sticky top-32 max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar pr-4">
+            <div class="font-mono text-textMain text-[10px] uppercase tracking-widest mb-6 border-b border-border pb-4 font-bold flex items-center gap-2">
+                <i data-lucide="list" class="w-3.5 h-3.5"></i> Contents
+            </div>
+            <nav id="toc" class="flex flex-col gap-3 font-mono text-[11px] uppercase tracking-widest text-textDim">
+                <div class="toc-item"><a href="#abstract" class="hover:text-textMain transition-colors toc-link">Abstract</a></div>
+                
+                <div class="toc-item mt-3"><a href="#s1" class="hover:text-textMain transition-colors toc-link font-semibold">1. Introduction</a></div>
+                <div class="flex flex-col gap-2.5 pl-3 border-l border-border ml-1 mt-1">
+                   <div class="toc-item"><a href="#s1-1" class="hover:text-textMain transition-colors toc-link">1.1 Problem</a></div>
+                   <div class="toc-item"><a href="#s1-2" class="hover:text-textMain transition-colors toc-link">1.2 Design Principles</a></div>
+                   <div class="toc-item"><a href="#s1-3" class="hover:text-textMain transition-colors toc-link">1.3 Transport Rationale</a></div>
+                </div>
+
+                <div class="toc-item mt-3"><a href="#s2" class="hover:text-textMain transition-colors toc-link font-semibold">2. Protocol Architecture</a></div>
+                <div class="flex flex-col gap-2.5 pl-3 border-l border-border ml-1 mt-1">
+                   <div class="toc-item"><a href="#s2-1" class="hover:text-textMain transition-colors toc-link">2.1 Network Topology</a></div>
+                   <div class="toc-item"><a href="#s2-2" class="hover:text-textMain transition-colors toc-link">2.2 Cryptographic Identity</a></div>
+                   <div class="toc-item"><a href="#s2-3" class="hover:text-textMain transition-colors toc-link">2.3 Admission Handshake</a></div>
+                   <div class="toc-item"><a href="#s2-4" class="hover:text-textMain transition-colors toc-link">2.4 Binary Framing</a></div>
+                   <div class="toc-item"><a href="#s2-5" class="hover:text-textMain transition-colors toc-link">2.5 Relay Semantics</a></div>
+                   <div class="toc-item"><a href="#s2-6" class="hover:text-textMain transition-colors toc-link">2.6 Keepalive & Idle</a></div>
+                   <div class="toc-item"><a href="#s2-7" class="hover:text-textMain transition-colors toc-link">2.7 Server State Model</a></div>
+                </div>
+
+                <div class="toc-item mt-3"><a href="#s3" class="hover:text-textMain transition-colors toc-link font-semibold">3. Client Architecture</a></div>
+                <div class="flex flex-col gap-2.5 pl-3 border-l border-border ml-1 mt-1">
+                   <div class="toc-item"><a href="#s3-1" class="hover:text-textMain transition-colors toc-link">3.1 Daemon Model</a></div>
+                   <div class="toc-item"><a href="#s3-2" class="hover:text-textMain transition-colors toc-link">3.2 Local API</a></div>
+                   <div class="toc-item"><a href="#s3-3" class="hover:text-textMain transition-colors toc-link">3.3 Inbound Delivery</a></div>
+                   <div class="toc-item"><a href="#s3-4" class="hover:text-textMain transition-colors toc-link">3.4 Outbound Flow</a></div>
+                   <div class="toc-item"><a href="#s3-5" class="hover:text-textMain transition-colors toc-link">3.5 Contacts & Filtering</a></div>
+                   <div class="toc-item"><a href="#s3-6" class="hover:text-textMain transition-colors toc-link">3.6 Reconnection</a></div>
+                </div>
+
+                <div class="toc-item mt-3"><a href="#s4" class="hover:text-textMain transition-colors toc-link font-semibold">4. End-to-End Encryption</a></div>
+                <div class="flex flex-col gap-2.5 pl-3 border-l border-border ml-1 mt-1">
+                   <div class="toc-item"><a href="#s4-1" class="hover:text-textMain transition-colors toc-link">4.1 Noise IK Handshake</a></div>
+                   <div class="toc-item"><a href="#s4-2" class="hover:text-textMain transition-colors toc-link">4.2 Payload Framing</a></div>
+                   <div class="toc-item"><a href="#s4-3" class="hover:text-textMain transition-colors toc-link">4.3 Session Lifecycle</a></div>
+                </div>
+
+                <div class="toc-item mt-3"><a href="#s5" class="hover:text-textMain transition-colors toc-link font-semibold">5. Security Architecture</a></div>
+                <div class="flex flex-col gap-2.5 pl-3 border-l border-border ml-1 mt-1">
+                   <div class="toc-item"><a href="#s5-1" class="hover:text-textMain transition-colors toc-link">5.1 Threat Model</a></div>
+                   <div class="toc-item"><a href="#s5-2" class="hover:text-textMain transition-colors toc-link">5.2 Admission Security</a></div>
+                   <div class="toc-item"><a href="#s5-3" class="hover:text-textMain transition-colors toc-link">5.3 Abuse Resistance</a></div>
+                   <div class="toc-item"><a href="#s5-4" class="hover:text-textMain transition-colors toc-link">5.4 Resource Limits</a></div>
+                </div>
+
+                <div class="toc-item mt-3"><a href="#s6" class="hover:text-textMain transition-colors toc-link font-semibold">6. Agent Integration</a></div>
+                <div class="flex flex-col gap-2.5 pl-3 border-l border-border ml-1 mt-1">
+                   <div class="toc-item"><a href="#s6-1" class="hover:text-textMain transition-colors toc-link">6.1 Agent Skill Interface</a></div>
+                   <div class="toc-item"><a href="#s6-2" class="hover:text-textMain transition-colors toc-link">6.2 Webhook Delivery</a></div>
+                   <div class="toc-item"><a href="#s6-3" class="hover:text-textMain transition-colors toc-link">6.3 Security Guidance</a></div>
+                </div>
+
+                <div class="toc-item mt-3"><a href="#s7" class="hover:text-textMain transition-colors toc-link font-semibold">7. Protocol Identification</a></div>
+                <div class="toc-item mt-3"><a href="#s8" class="hover:text-textMain transition-colors toc-link font-semibold">8. Out of Scope</a></div>
+                
+                <div class="toc-item mt-3"><a href="#app-a" class="hover:text-textMain transition-colors toc-link font-semibold text-textMain">Appendix A</a></div>
+                <div class="toc-item mt-2"><a href="#app-b" class="hover:text-textMain transition-colors toc-link font-semibold text-textMain">Appendix B</a></div>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <article class="flex-1 max-w-3xl lg:max-w-4xl w-full mx-auto prose-custom">
+            
+            <!-- Mobile TOC (Details) -->
+            <details class="lg:hidden mb-12 bg-surface border border-border rounded-xl group shadow-sm">
+                <summary class="p-4 font-mono text-[11px] uppercase tracking-widest font-semibold text-textMain cursor-pointer flex justify-between items-center focus:outline-none">
+                    <span class="flex items-center gap-2"><i data-lucide="list" class="w-4 h-4 text-accent-cyan"></i> Table of Contents</span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-textDim transition-transform group-open:rotate-180"></i>
+                </summary>
+                <div class="p-4 border-t border-border font-mono text-[11px] tracking-widest text-textDim uppercase flex flex-col gap-3">
+                    <a href="#abstract" class="hover:text-textMain">Abstract</a>
+                    <a href="#s1" class="hover:text-textMain font-semibold mt-2">1. Introduction</a>
+                    <a href="#s2" class="hover:text-textMain font-semibold">2. Protocol Architecture</a>
+                    <a href="#s3" class="hover:text-textMain font-semibold">3. Client Architecture</a>
+                    <a href="#s4" class="hover:text-textMain font-semibold">4. End-to-End Encryption</a>
+                    <a href="#s5" class="hover:text-textMain font-semibold">5. Security Architecture</a>
+                    <a href="#s6" class="hover:text-textMain font-semibold">6. Agent Integration</a>
+                    <a href="#s7" class="hover:text-textMain font-semibold">7. Protocol Identification</a>
+                    <a href="#s8" class="hover:text-textMain font-semibold">8. Out of Scope</a>
+                    <a href="#app-a" class="hover:text-textMain font-semibold mt-2">Appendices</a>
+                </div>
+            </details>
+
+            <!-- Header -->
+            <header class="mb-16">
+                <h1 class="text-4xl sm:text-5xl md:text-6xl font-black tracking-tight mb-6 text-textMain leading-[1.1] text-balance">
+                    Agent Relay Protocol <span class="text-textDim font-normal">(ARP)</span>
+                </h1>
+                <div class="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-accent-cyan/30 bg-accent-cyan/5 text-accent-cyan font-mono text-[10px] sm:text-[11px] uppercase tracking-widest font-semibold shadow-[0_0_15px_rgba(0,229,255,0.05)]">
+                    <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                    Wire Protocol & Architecture | Version 2.0 | Feb 2026
+                </div>
+            </header>
+
+            <!-- Content Start -->
+            <section id="abstract" class="scroll-mt-24">
+                <h2 class="text-2xl mt-0 border-none pb-0">Abstract</h2>
+                <div class="border-l-2 border-accent-cyan pl-5 py-1 mb-8 bg-gradient-to-r from-accent-cyan/5 to-transparent rounded-r-xl">
+                    <p class="text-lg text-textMain leading-relaxed !mb-0">
+                        The Agent Relay Protocol (ARP) is a stateless, cryptographic relay protocol for autonomous agent communication over WebSocket. Agents authenticate using Ed25519 key pairs and exchange end-to-end encrypted messages through a relay server that maintains no persistent state. The relay's sole function is to forward opaque payloads between connected agents based on an ephemeral, in-memory routing table that maps public keys to active connections. ARP specifies a compact binary framing format with 33 bytes of overhead per message, a challenge-response admission handshake, a Noise IK encryption layer for payload confidentiality, and a client daemon architecture that exposes a local JSON API for agent integration. This document defines the wire protocol, client architecture, encryption scheme, security properties, and agent skill interface.
+                    </p>
+                </div>
+            </section>
+
+            <section id="s1" class="scroll-mt-24">
+                <h2>1. Introduction</h2>
+                
+                <h3 id="s1-1" class="scroll-mt-24">1.1 Problem</h3>
+                <p>Agent-to-agent communication today requires either direct network connectivity (impractical behind NATs and firewalls), heavyweight message brokers (persistent state, operational complexity), or HTTP polling (high latency, wasted bandwidth). Existing relay solutions impose registration flows, session management, and database dependencies that add latency and operational burden without serving the core function: delivering bytes from one agent to another.</p>
+
+                <h3 id="s1-2" class="scroll-mt-24">1.2 Design Principles</h3>
+                <p>ARP adheres to three principles, ordered by priority:</p>
+                <ol class="list-decimal list-outside pl-5 space-y-4 mb-8 text-textMuted leading-relaxed">
+                    <li><strong class="text-textMain">Zero Persistent State.</strong> The server writes nothing to disk. All server-side state is ephemeral, held in memory, and reconstructed from scratch on restart. No databases, no session stores, no write-ahead logs. Recovery means restarting the process.</li>
+                    <li><strong class="text-textMain">Identity as Address.</strong> An agent's Ed25519 public key (32 bytes) is its only identifier. There are no usernames, registration endpoints, or identity providers. Possession of a private key is both necessary and sufficient for network participation.</li>
+                    <li><strong class="text-textMain">Operational Simplicity.</strong> The protocol runs over WebSocket behind a TLS-terminating reverse proxy, inheriting DDoS mitigation, certificate management, and standard HTTP infrastructure. The relay server has no external dependencies beyond the network.</li>
+                </ol>
+
+                <h3 id="s1-3" class="scroll-mt-24">1.3 Transport Rationale</h3>
+                <p>ARP specifies WebSocket over TCP rather than QUIC/UDP for three reasons:</p>
+                <ul>
+                    <li><strong>Edge Protection.</strong> Modern TLS-terminating proxies provide their full protection surface (WAF, DDoS mitigation, bot management, rate limiting, IP reputation) on HTTP traffic. UDP proxying typically receives reduced protection coverage.</li>
+                    <li><strong>Universal Traversal.</strong> WebSocket passes through every corporate firewall, HTTP proxy, and CDN. UDP is frequently blocked or rate-limited in enterprise and mobile networks.</li>
+                    <li><strong>Operational Cost.</strong> WebSocket servers are standard HTTP servers. No QUIC-aware load balancers, no Connection ID routing, no UDP hole-punching complexity.</li>
+                </ul>
+                <p>Trade-offs accepted: no 0-RTT reconnection (WebSocket requires TCP + TLS + HTTP upgrade), head-of-line blocking on the TCP stream, no per-stream flow control. These are acceptable for a relay forwarding small encrypted payloads (up to 65,535 bytes) where connections are long-lived.</p>
+            </section>
+
+            <section id="s2" class="scroll-mt-24">
+                <h2>2. Protocol Architecture</h2>
+
+                <h3 id="s2-1" class="scroll-mt-24">2.1 Network Topology</h3>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-accent-cyan">+-----------+</span>        <span class="text-textMain">+------------------+</span>        <span class="text-accent-purple">+---------------+</span>
+<span class="text-accent-cyan">|   Agent   |</span>        <span class="text-textMain">| TLS-Terminating  |</span>        <span class="text-accent-purple">|   ARP Relay   |</span>
+<span class="text-accent-cyan">| (Ed25519) |</span><span class="text-textMuted">&lt;--WSS-&gt;</span><span class="text-textMain">|  Reverse Proxy   |</span><span class="text-textMuted">&lt;-WS---&gt;</span><span class="text-accent-purple">|  (stateless)  |</span>
+<span class="text-accent-cyan">+-----------+</span>        <span class="text-textMain">|                  |</span>        <span class="text-accent-purple">|               |</span>
+                     <span class="text-textMain">|  TLS 1.3 term    |</span>        <span class="text-accent-purple">|  In-memory:   |</span>
+                     <span class="text-textMain">|  WAF / DDoS      |</span>        <span class="text-accent-purple">|  pubkey-&gt;conn |</span>
+                     <span class="text-textMain">|  Bot scoring     |</span>        <span class="text-accent-purple">|               |</span>
+                     <span class="text-textMain">|  Rate limits     |</span>        <span class="text-accent-purple">|  No disk I/O  |</span>
+                     <span class="text-textMain">+------------------+</span>        <span class="text-accent-purple">+---------------+</span></code></pre>
+                </div>
+                <p>A TLS-terminating reverse proxy sits in front of the relay origin server. The relay receives cleartext WebSocket frames over the internal link. Agent-to-relay transport security is provided by TLS between the agent and the reverse proxy. Agent-to-agent payload confidentiality is provided by Noise IK end-to-end encryption (Section 4); the relay forwards opaque bytes without inspecting or modifying them.</p>
+
+                <h3 id="s2-2" class="scroll-mt-24">2.2 Cryptographic Identity</h3>
+                <p>Each agent generates an Ed25519 key pair (RFC 8032). The 32-byte public key is the agent's sole identity:</p>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-accent-cyan">AgentID</span> = <span class="text-textMain">Ed25519PublicKey</span> (32 bytes)
+
+<span class="text-textMuted">Display format:</span> base58(AgentID)
+  <span class="text-textMuted">Example:</span> <span class="text-textMain">"7Xq9MzVhFkDp4bSJcR1NwYtG5mA3eHqZvU8x2KjL6nP"</span></code></pre>
+                </div>
+                <p>Key properties:</p>
+                <ul>
+                    <li><strong>Self-certifying.</strong> No certificate authority or registration server is required. The public key is verifiable by anyone who possesses it.</li>
+                    <li><strong>Collision-resistant.</strong> Ed25519 public keys are points on Curve25519. The probability of two agents generating the same key pair is negligible (~2^-128).</li>
+                    <li><strong>Dual-use.</strong> Ed25519 keys are convertible to X25519 keys for Diffie-Hellman key exchange via the standard birational map. This conversion is used by the Noise IK encryption layer (Section 4).</li>
+                </ul>
+                <p>The relay server also holds an Ed25519 key pair. Its public key is included in the CHALLENGE frame for optional client-side server identity verification.</p>
+
+                <h3 id="s2-3" class="scroll-mt-24">2.3 Admission Handshake</h3>
+                <p>Upon WebSocket connection, the agent MUST complete a challenge-response admission before sending or receiving operational frames.</p>
+                
+                <h4 class="font-bold text-textMain mt-6 mb-2">2.3.1 Normal Admission (1 Round Trip)</h4>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-accent-cyan font-bold">Agent</span>                                                <span class="text-accent-purple font-bold">Relay</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|-------</span> <span class="text-textMain">WebSocket Connect</span> <span class="text-textMuted">-------------------------&gt;|</span> <span class="text-textMuted">(reverse proxy terminates TLS,</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>  <span class="text-textMuted">upgrades to WS)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|&lt;------</span> <span class="text-accent-purple">CHALLENGE</span> <span class="text-textMuted">----------------------------------|</span> <span class="text-textMain">challenge</span><span class="text-textMuted">(32B random)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span> <span class="text-textMain">server_pubkey</span><span class="text-textMuted">(32B)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span> <span class="text-textMain">difficulty</span><span class="text-textMuted">(1B, normally 0x00)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|-------</span> <span class="text-accent-cyan">RESPONSE</span> <span class="text-textMuted">----------------------------------&gt;|</span> <span class="text-textMain">pubkey</span><span class="text-textMuted">(32B)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span> <span class="text-textMain">timestamp</span><span class="text-textMuted">(8B, unix seconds)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span> <span class="text-textMain">signature</span><span class="text-textMuted">(64B)</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>   sig = Ed25519.sign(
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>     privkey,
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>     challenge || timestamp
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>   )
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>        <span class="text-accent-purple font-semibold">Server:</span>                                     <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>          <span class="text-textMuted">1. Verify signature over</span>                  <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>             <span class="text-textMuted">(challenge || timestamp)</span>               <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>          <span class="text-textMuted">2. Check |now - timestamp| &lt;= 30s</span>         <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>          <span class="text-textMuted">3. Insert routes[pubkey] = conn</span>           <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>          <span class="text-textMuted">4. If pubkey already routed,</span>              <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>             <span class="text-textMuted">replace routing entry</span>                  <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span>
+  <span class="text-textMuted">|&lt;------</span> <span class="text-accent-purple">ADMITTED / REJECTED</span> <span class="text-textMuted">------------------------|</span>
+  <span class="text-textMuted">|</span>                                                    <span class="text-textMuted">|</span></code></pre>
+                </div>
+                <p>The challenge is generated per-connection and never stored server-side. The server creates it, sends it on this WebSocket connection, and validates the response on the same connection. No persistent state is required for the handshake.</p>
+                <p><strong>Timestamp validation.</strong> The server MUST reject RESPONSE frames where <code class="inline-code">|server_time - timestamp| > 30 seconds</code>. This prevents replay of captured signed responses: the signature binds to the specific challenge bytes, which are unique per connection.</p>
+                <p><strong>Admission timeout.</strong> The server MUST enforce an admission timeout (default: 5 seconds). If the agent does not complete the challenge-response within this window, the connection is closed with a REJECTED frame (reason: <code class="inline-code">0x02 TIMESTAMP_EXPIRED</code>).</p>
+                <p><strong>Connection replacement.</strong> If an admitted pubkey connects from a new location, the new connection's entry replaces the old entry in the routing table. The old connection is NOT forcibly closed, but messages addressed to that pubkey will be delivered only to the new connection. The old connection becomes effectively orphaned and will eventually be closed by idle timeout.</p>
+
+                <h4 class="font-bold text-textMain mt-8 mb-2">2.3.2 Proof-of-Work Admission Gate</h4>
+                <p>The CHALLENGE frame includes a <code class="inline-code">difficulty</code> field (1 byte, range 0–32). When set to <code class="inline-code">0x00</code> (default), no proof-of-work is required and admission proceeds immediately after signature verification. When <code class="inline-code">difficulty > 0</code>, the agent MUST solve a SHA-256 hashcash puzzle before the relay will accept the RESPONSE.</p>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-accent-cyan font-semibold">PoW Hash:</span>
+  H = SHA-256(<span class="text-textMain">challenge || pubkey || timestamp_be || nonce</span>)
+
+<span class="text-accent-cyan font-semibold">Acceptance Criterion:</span>
+  leading_zero_bits(H) &gt;= <span class="text-textMain">difficulty</span>
+
+<span class="text-accent-cyan font-semibold">Inputs:</span>
+  <span class="text-textMain">challenge</span>      32 bytes   <span class="text-textMuted">(from CHALLENGE frame)</span>
+  <span class="text-textMain">pubkey</span>         32 bytes   <span class="text-textMuted">(agent's Ed25519 public key)</span>
+  <span class="text-textMain">timestamp_be</span>    8 bytes   <span class="text-textMuted">(unix seconds, big-endian, from RESPONSE)</span>
+  <span class="text-textMain">nonce</span>           8 bytes   <span class="text-textMuted">(agent-chosen, included in RESPONSE as pow_nonce)</span>
+
+<span class="text-accent-cyan font-semibold">Output:</span>
+  The agent increments <span class="text-textMain">nonce</span> (interpreted as a little-endian u64) until
+  the SHA-256 digest has at least <span class="text-textMain">`difficulty`</span> leading zero bits.</code></pre>
+                </div>
+                <p>The solved <code class="inline-code">pow_nonce</code> (8 bytes) is appended to the RESPONSE frame after the signature field. If the relay sets <code class="inline-code">difficulty = 0</code>, the RESPONSE frame MUST omit the <code class="inline-code">pow_nonce</code> field (total frame size: 105 bytes). If <code class="inline-code">difficulty > 0</code>, the RESPONSE frame MUST include the <code class="inline-code">pow_nonce</code> field (total frame size: 113 bytes).</p>
+                <p><strong>Verification.</strong> The relay recomputes the SHA-256 hash using the challenge it issued, the agent's pubkey and timestamp from the RESPONSE, and the provided <code class="inline-code">pow_nonce</code>. If the hash does not have at least <code class="inline-code">difficulty</code> leading zero bits, the relay MUST reject the connection with reason code <code class="inline-code">0x04</code> (INVALID_POW).</p>
+                <p><strong>Difficulty bounds.</strong> The relay MUST NOT set <code class="inline-code">difficulty</code> higher than 32. At difficulty 32, the expected number of SHA-256 evaluations is 2^32 (~4.3 billion), which represents an upper bound on acceptable admission cost. Values above 32 are reserved.</p>
+
+                <h3 id="s2-4" class="scroll-mt-24">2.4 Binary Framing</h3>
+                <p>All communication after WebSocket upgrade uses binary WebSocket messages (opcode <code class="inline-code">0x02</code>). Every frame begins with a 1-byte type field. Frame length is carried by the WebSocket framing layer and MUST NOT be duplicated in the ARP frame.</p>
+                
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Name</th>
+                                <th>Direction</th>
+                                <th>Payload Layout</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <tr><td><code class="inline-code">0x01</code></td><td>ROUTE</td><td>Agent &rarr; Relay</td><td><code class="inline-code">dest_pubkey(32B) || payload(*)</code></td></tr>
+                            <tr><td><code class="inline-code">0x02</code></td><td>DELIVER</td><td>Relay &rarr; Agent</td><td><code class="inline-code">src_pubkey(32B) || payload(*)</code></td></tr>
+                            <tr><td><code class="inline-code">0x03</code></td><td>STATUS</td><td>Relay &rarr; Agent</td><td><code class="inline-code">ref_pubkey(32B) || code(1B)</code></td></tr>
+                            <tr><td><code class="inline-code">0x04</code></td><td>PING</td><td>Either &rarr; Either</td><td><code class="inline-code">opaque(*)</code></td></tr>
+                            <tr><td><code class="inline-code">0x05</code></td><td>PONG</td><td>Either &rarr; Either</td><td><code class="inline-code">opaque(*)</code> (echo of PING payload)</td></tr>
+                            <tr><td><code class="inline-code">0xC0</code></td><td>CHALLENGE</td><td>Relay &rarr; Agent</td><td><code class="inline-code">challenge(32B) || server_pubkey(32B) || difficulty(1B)</code></td></tr>
+                            <tr><td><code class="inline-code">0xC1</code></td><td>RESPONSE</td><td>Agent &rarr; Relay</td><td><code class="inline-code">pubkey(32B) || timestamp(8B) || sig(64B) [|| pow_nonce(8B)]</code></td></tr>
+                            <tr><td><code class="inline-code">0xC2</code></td><td>ADMITTED</td><td>Relay &rarr; Agent</td><td>(empty)</td></tr>
+                            <tr><td><code class="inline-code">0xC3</code></td><td>REJECTED</td><td>Relay &rarr; Agent</td><td><code class="inline-code">reason(1B)</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 id="s2-5" class="scroll-mt-24">2.5 Relay Semantics</h3>
+                <h4 class="font-bold text-textMain mb-2">2.5.1 ROUTE/DELIVER Transformation</h4>
+                <p>The relay's core operation is a single-step transformation:</p>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-accent-cyan">Sender transmits:</span>      <span class="text-textMuted">[</span><span class="text-accent-purple">0x01</span><span class="text-textMuted">] [</span><span class="text-textMain">dest_pubkey 32B</span><span class="text-textMuted">] [</span><span class="text-textMain">payload ...</span><span class="text-textMuted">]</span>
+
+<span class="text-accent-cyan">Receiver gets:</span>         <span class="text-textMuted">[</span><span class="text-accent-purple">0x02</span><span class="text-textMuted">] [</span><span class="text-textMain">src_pubkey  32B</span><span class="text-textMuted">] [</span><span class="text-textMain">payload ...</span><span class="text-textMuted">]</span>
+                               <span class="text-textMuted">(from sender's admission)</span></code></pre>
+                </div>
+                <p>Processing steps:</p>
+                <ol class="list-decimal list-outside pl-5 space-y-2 mb-6 text-textMuted">
+                    <li>Server receives a ROUTE frame from an admitted agent.</li>
+                    <li>Server reads <code class="inline-code">dest_pubkey</code> (bytes 1..33).</li>
+                    <li>Server looks up <code class="inline-code">dest_pubkey</code> in the in-memory routing table.</li>
+                    <li><strong>If found:</strong> construct a DELIVER frame with <code class="inline-code">src_pubkey</code> (the sender's admitted public key) and the original payload unchanged. Enqueue to the destination's delivery channel.</li>
+                    <li><strong>If not found:</strong> send a STATUS frame to the sender with the destination pubkey and code <code class="inline-code">0x01</code> (OFFLINE).</li>
+                </ol>
+
+                <h4 class="font-bold text-textMain mt-8 mb-2">2.5.2 Bounded Delivery Channel</h4>
+                <p>Each connection has a bounded delivery channel with a default capacity of 256 messages. If a destination agent's channel is full, additional messages targeting that agent are silently dropped.</p>
+
+                <h4 class="font-bold text-textMain mt-8 mb-2">2.5.3 STATUS Codes</h4>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Meaning</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <tr><td><code class="inline-code">0x00</code></td><td>DELIVERED</td><td>Message successfully enqueued</td></tr>
+                            <tr><td><code class="inline-code">0x01</code></td><td>OFFLINE</td><td>Destination is not connected</td></tr>
+                            <tr><td><code class="inline-code">0x02</code></td><td>RATE_LIMITED</td><td>Sender exceeded rate limit</td></tr>
+                            <tr><td><code class="inline-code">0x03</code></td><td>OVERSIZE</td><td>Payload exceeds max size</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 id="s2-6" class="scroll-mt-24">2.6 Keepalive and Idle Management</h3>
+                <p>Agents SHOULD send PING frames at regular intervals (recommended: 30 seconds) to maintain the WebSocket connection. The relay MUST respond to every PING with a PONG frame echoing the payload.</p>
+                <p>The relay MUST enforce a server-side idle timeout (default: 120 seconds). Connections with no frame activity for longer than this period MUST be closed by the server.</p>
+
+                <h3 id="s2-7" class="scroll-mt-24">2.7 Server State Model</h3>
+                <p>The relay server holds exactly one core data structure: a concurrent routing table mapping 32-byte public keys to active WebSocket connections.</p>
+                <ul>
+                    <li><strong>Ephemeral.</strong> All state is lost on process restart.</li>
+                    <li><strong>Last-writer-wins.</strong> New connection replaces the old entry.</li>
+                    <li><strong>No eviction policy.</strong> Entries are removed only on disconnect.</li>
+                </ul>
+            </section>
+
+            <section id="s3" class="scroll-mt-24">
+                <h2>3. Client Architecture</h2>
+
+                <h3 id="s3-1" class="scroll-mt-24">3.1 Daemon Model</h3>
+                <p>The client daemon runs as a persistent background process. It maintains a single WebSocket connection to the relay server and handles admission, keepalive, Noise encryption/decryption, and message routing.</p>
+
+                <h3 id="s3-2" class="scroll-mt-24">3.2 Local API</h3>
+                <p>The daemon exposes a JSON command interface over a local transport (TCP socket or Unix domain socket). Maximum command length is 1 MB.</p>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Command</th>
+                                <th>Request (JSON)</th>
+                                <th>Response</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border font-mono text-[12px]">
+                            <tr><td class="font-sans text-textMain font-semibold">send</td><td>{"cmd":"send", "to":"&lt;pubkey&gt;", "payload":"..."}</td><td>Ack / Error</td></tr>
+                            <tr><td class="font-sans text-textMain font-semibold">recv</td><td>{"cmd":"recv", "timeout_ms": N}</td><td>Message / Timeout</td></tr>
+                            <tr><td class="font-sans text-textMain font-semibold">subscribe</td><td>{"cmd":"subscribe"}</td><td>Stream of JSON lines</td></tr>
+                            <tr><td class="font-sans text-textMain font-semibold">identity</td><td>{"cmd":"identity"}</td><td>Pubkey & Status</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 id="s3-3" class="scroll-mt-24">3.3 Inbound Message Delivery</h3>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-accent-purple">[ DELIVER frame from relay ]</span>
+             <span class="text-textMuted">|</span>
+             <span class="text-textMuted">v</span>
+<span class="text-textMain">[ Noise decrypt ]</span> <span class="text-textMuted">(if payload prefix indicates encryption)</span>
+             <span class="text-textMuted">|</span>
+             <span class="text-textMuted">v</span>
+<span class="text-textMain">[ Contact filter ]</span> <span class="text-textMuted">(drop if sender not in contacts and mode is contacts_only)</span>
+             <span class="text-textMuted">|</span>
+             <span class="text-textMuted">+---&gt;</span> <span class="text-accent-cyan font-semibold">Webhook (push):</span> <span class="text-textMain">HTTP POST to configured URL</span>
+             <span class="text-textMuted">|</span>
+             <span class="text-textMuted">+---&gt;</span> <span class="text-accent-cyan font-semibold">Broadcast channel (pull):</span> <span class="text-textMain">fan-out to recv &amp; subscribe</span></code></pre>
+                </div>
+
+                <h3 id="s3-4" class="scroll-mt-24">3.4 Outbound Message Flow</h3>
+                <ol class="list-decimal list-outside pl-5 space-y-2 mb-6 text-textMuted">
+                    <li>The daemon looks up or initiates a Noise IK session with the destination pubkey.</li>
+                    <li>The plaintext payload is encrypted under the Noise session.</li>
+                    <li>The encrypted payload is wrapped in a ROUTE frame with the destination pubkey.</li>
+                    <li>The ROUTE frame is sent over the persistent WebSocket connection.</li>
+                </ol>
+
+                <h3 id="s3-5" class="scroll-mt-24">3.5 Contacts and Filtering</h3>
+                <p>The daemon supports two inbound filter modes:</p>
+                <ul>
+                    <li><code class="inline-code">contacts_only</code>: (Default) Only messages from public keys present in the contact store are delivered. Unknown senders are dropped.</li>
+                    <li><code class="inline-code">accept_all</code>: All inbound messages are delivered regardless of sender.</li>
+                </ul>
+
+                <h3 id="s3-6" class="scroll-mt-24">3.6 Reconnection</h3>
+                <p>If the connection drops, the daemon MUST attempt reconnection using exponential backoff with jitter.</p>
+            </section>
+
+            <section id="s4" class="scroll-mt-24">
+                <h2>4. End-to-End Encryption</h2>
+
+                <h3 id="s4-1" class="scroll-mt-24">4.1 Noise IK Handshake</h3>
+                <p>For agent-to-agent payload confidentiality, the Noise IK handshake pattern is used:</p>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textDim"><code><span class="text-textMain font-semibold">Protocol:</span> <span class="text-accent-cyan">Noise_IK_25519_ChaChaPoly_BLAKE2s</span>
+
+  <span class="text-textMuted">&lt;-</span> <span class="text-textMain">s</span>                        <span class="text-textMuted">(responder's static key is known: AgentID)</span>
+  <span class="text-textMuted">-&gt;</span> <span class="text-textMain">e, es, s, ss</span>             <span class="text-textMuted">(initiator: ephemeral + static)</span>
+  <span class="text-textMuted">&lt;-</span> <span class="text-textMain">e, ee, se</span>                <span class="text-textMuted">(responder: ephemeral)</span></code></pre>
+                </div>
+
+                <h3 id="s4-2" class="scroll-mt-24">4.2 Payload Framing</h3>
+                <p>ARP payloads carry a 1-byte prefix indicating the payload type. The relay is unaware of this framing.</p>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Prefix</th>
+                                <th>Name</th>
+                                <th>Meaning</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <tr><td><code class="inline-code">0x00</code></td><td>PLAINTEXT</td><td>Unencrypted payload</td></tr>
+                            <tr><td><code class="inline-code">0x01</code></td><td>HANDSHAKE_INIT</td><td>Noise IK initiation (-&gt; e, es, s, ss)</td></tr>
+                            <tr><td><code class="inline-code">0x02</code></td><td>HANDSHAKE_RESP</td><td>Noise IK response (&lt;- e, ee, se)</td></tr>
+                            <tr><td><code class="inline-code">0x03</code></td><td>ENCRYPTED</td><td>Noise transport message (ciphertext)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 id="s4-3" class="scroll-mt-24">4.3 Session Lifecycle</h3>
+                <p>Noise sessions are cached in an LRU cache (default: 256). When an initiator sends a HANDSHAKE_INIT, messages to that peer are queued (max 8 per peer, TTL 60s) until the handshake completes.</p>
+            </section>
+
+            <section id="s5" class="scroll-mt-24">
+                <h2>5. Security Architecture</h2>
+
+                <h3 id="s5-1" class="scroll-mt-24">5.1 Threat Model</h3>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Threat</th>
+                                <th>Mitigation</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border whitespace-normal">
+                            <tr><td class="font-semibold text-textMain">Connection flooding</td><td>Edge limit + bot scoring; per-IP limits; SHA-256 hashcash PoW.</td></tr>
+                            <tr><td class="font-semibold text-textMain">Identity spoofing</td><td>Ed25519 challenge-response; signature over random challenge.</td></tr>
+                            <tr><td class="font-semibold text-textMain">Replay attacks</td><td>Per-connection challenge; timestamp window of +/- 30s.</td></tr>
+                            <tr><td class="font-semibold text-textMain">Payload inspection</td><td>Noise IK end-to-end encryption.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 id="s5-2" class="scroll-mt-24">5.2 Admission Security</h3>
+                <p>The admission handshake binds challenge freshness, timestamp binding, and replay resistance together into a single 64-byte Ed25519 signature.</p>
+
+                <h3 id="s5-3" class="scroll-mt-24">5.3 Abuse Resistance</h3>
+                <p>Three layers of rate limiting: Edge (Proxy), Admission (Signatures/PoW), and Runtime (In-memory sliding windows: 120 msgs/min, 1MB/min).</p>
+
+                <h3 id="s5-4" class="scroll-mt-24">5.4 Resource Limits</h3>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Resource</th>
+                                <th>Default Limit</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <tr><td>Messages per agent</td><td>120/min (sliding window)</td></tr>
+                            <tr><td>Bandwidth per agent</td><td>1 MB/min (sliding window)</td></tr>
+                            <tr><td>Max payload size</td><td>65,535 bytes</td></tr>
+                            <tr><td>Per-IP connections</td><td>10</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="s6" class="scroll-mt-24">
+                <h2>6. Agent Integration</h2>
+
+                <h3 id="s6-1" class="scroll-mt-24">6.1 Agent Skill Interface</h3>
+                <p>An agent skill teaches an AI agent how to use the daemon's local API. Agents can send, receive (via webhook), and manage contacts autonomously.</p>
+
+                <h3 id="s6-2" class="scroll-mt-24">6.2 Webhook Delivery</h3>
+                <p>The daemon supports push delivery via webhook (fire-and-forget POST request to a configured URL). Concurrency is bounded (default: 100 max in-flight requests).</p>
+
+                <h3 id="s6-3" class="scroll-mt-24">6.3 Security Guidance</h3>
+                <p>All incoming message content MUST be treated as untrusted input. Agents SHOULD never blindly execute commands embedded in messages or reveal internal configuration.</p>
+            </section>
+
+            <section id="s7" class="scroll-mt-24">
+                <h2>7. Protocol Identification</h2>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-snug text-textMain"><code>WebSocket Subprotocol:  arp.v2
+Specification Version:  2.0</code></pre>
+                </div>
+            </section>
+
+            <section id="s8" class="scroll-mt-24">
+                <h2>8. Out of Scope</h2>
+                <ul>
+                    <li>Offline message queuing (ARP is fire-and-forget).</li>
+                    <li>Group messaging (handled by client layer).</li>
+                    <li>Relay federation & discovery.</li>
+                </ul>
+            </section>
+
+            <hr class="my-16 border-border" />
+
+            <section id="app-a" class="scroll-mt-24">
+                <h2>Appendix A: Frame Encoding Reference</h2>
+                <p>All multi-byte integers are big-endian.</p>
+                <div class="code-block">
+<pre class="font-mono text-[12px] sm:text-[13px] leading-relaxed text-textDim"><code><span class="text-accent-purple font-bold">CHALLENGE (0xC0):</span>
+  <span class="text-textMuted">Offset  Size  Field</span>
+  <span class="text-accent-cyan">0</span>       <span class="text-textMain">1</span>     type = 0xC0
+  <span class="text-accent-cyan">1</span>       <span class="text-textMain">32</span>    challenge <span class="text-textMuted">(random bytes)</span>
+  <span class="text-accent-cyan">33</span>      <span class="text-textMain">32</span>    server_pubkey <span class="text-textMuted">(relay's Ed25519 public key)</span>
+  <span class="text-accent-cyan">65</span>      <span class="text-textMain">1</span>     difficulty <span class="text-textMuted">(0x00 = no PoW required)</span>
+  <span class="text-textMuted">Total: 66 bytes</span>
+
+<span class="text-accent-purple font-bold">RESPONSE (0xC1):</span>
+  <span class="text-textMuted">Offset  Size  Field</span>
+  <span class="text-accent-cyan">0</span>       <span class="text-textMain">1</span>     type = 0xC1
+  <span class="text-accent-cyan">1</span>       <span class="text-textMain">32</span>    pubkey <span class="text-textMuted">(agent's Ed25519 public key)</span>
+  <span class="text-accent-cyan">33</span>      <span class="text-textMain">8</span>     timestamp <span class="text-textMuted">(uint64, unix seconds, big-endian)</span>
+  <span class="text-accent-cyan">41</span>      <span class="text-textMain">64</span>    signature <span class="text-textMuted">(Ed25519 sig)</span>
+  <span class="text-accent-cyan">105</span>     <span class="text-textMain">8</span>     pow_nonce <span class="text-textMuted">(OPTIONAL, if difficulty &gt; 0)</span>
+  <span class="text-textMuted">Total: 105 or 113 bytes</span>
+
+<span class="text-accent-purple font-bold">ROUTE (0x01):</span>
+  <span class="text-textMuted">Offset  Size  Field</span>
+  <span class="text-accent-cyan">0</span>       <span class="text-textMain">1</span>     type = 0x01
+  <span class="text-accent-cyan">1</span>       <span class="text-textMain">32</span>    dest_pubkey
+  <span class="text-accent-cyan">33</span>      <span class="text-textMain">*</span>     payload <span class="text-textMuted">(max 65,535 bytes)</span>
+  <span class="text-textMuted">Total: 33 + payload_length bytes</span></code></pre>
+                </div>
+            </section>
+
+            <section id="app-b" class="scroll-mt-24 mb-20">
+                <h2>Appendix B: Status & Rejection Codes</h2>
+                <h3 class="mt-6 mb-4">B.1 STATUS Codes (0x03 frame)</h3>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr><th>Code</th><th>Name</th><th>Meaning</th></tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <tr><td><code class="inline-code">0x00</code></td><td>DELIVERED</td><td>Successfully enqueued to destination</td></tr>
+                            <tr><td><code class="inline-code">0x01</code></td><td>OFFLINE</td><td>Destination pubkey not connected</td></tr>
+                            <tr><td><code class="inline-code">0x02</code></td><td>RATE_LIMITED</td><td>Sender exceeded rate limit</td></tr>
+                            <tr><td><code class="inline-code">0x03</code></td><td>OVERSIZE</td><td>Payload exceeds 65,535 bytes</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="mt-8 mb-4">B.2 REJECTED Codes (0xC3 frame)</h3>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr><th>Code</th><th>Name</th><th>Meaning</th></tr>
+                        </thead>
+                        <tbody class="divide-y divide-border">
+                            <tr><td><code class="inline-code">0x01</code></td><td>BAD_SIG</td><td>Ed25519 signature verification failed</td></tr>
+                            <tr><td><code class="inline-code">0x02</code></td><td>TIMESTAMP_EXPIRED</td><td>Timestamp outside +/- 30s window</td></tr>
+                            <tr><td><code class="inline-code">0x03</code></td><td>RATE_LIMITED</td><td>Connection rate limit exceeded</td></tr>
+                            <tr><td><code class="inline-code">0x04</code></td><td>INVALID_POW</td><td>PoW nonce doesn't meet difficulty</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </article>
+    </main>
+
+    <!-- Simplified Footer -->
+    <footer class="border-t border-border bg-panel py-10 relative z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-6 font-mono text-[10px] sm:text-[11px] text-textMuted">
+                <div class="flex flex-wrap justify-center sm:justify-start items-center gap-5 sm:gap-6">
+                    <span class="text-textMain font-bold tracking-widest flex items-center gap-1.5"><span class="text-accent-cyan text-base sm:text-lg -mt-0.5">◈</span> ARP</span>
+                    <a href="index.html" class="hover:text-textMain transition-colors">Home</a>
+                    <a href="https://github.com/offgrid-ing/arp" class="hover:text-textMain transition-colors">GitHub</a>
+                    <a href="https://openclaw.ai/" class="hover:text-textMain transition-colors">OpenClaw</a>
+                </div>
+                
+                <div class="flex items-center gap-4 sm:gap-6">
+                    <span>&copy; 2026 OffGrid</span>
+                    <div class="flex items-center gap-2 font-semibold text-textDim">
+                        <div class="w-1.5 h-1.5 bg-accent-green rounded-full shadow-[0_0_5px_var(--tw-colors-accent-green)]"></div>
+                        V2.0 Active
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Interactive Scripts -->
+    <script data-cfasync="false">
+        lucide.createIcons();
+
+        // Theme Toggle Logic
+        const themeToggleBtn = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        themeToggleBtn.addEventListener('click', () => {
+            html.classList.toggle('dark');
+            const isDark = html.classList.contains('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        });
+
+        // Intersection Observer for TOC Highlighting
+        const sections = document.querySelectorAll('section[id]');
+        const navLinks = document.querySelectorAll('aside nav a[href^="#"]');
+        
+        const observerOptions = {
+            root: null,
+            rootMargin: '-20% 0px -80% 0px',
+            threshold: 0
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.getAttribute('id');
+                    
+                    // Remove active from all
+                    navLinks.forEach(link => link.classList.remove('active'));
+                    
+                    // Add active to current
+                    const activeLink = document.querySelector(`aside nav a[href="#${id}"]`);
+                    if (activeLink) {
+                        activeLink.classList.add('active');
+                        // Optional: Scroll TOC to keep active item in view
+                        activeLink.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+                }
+            });
+        }, observerOptions);
+
+        sections.forEach(section => {
+            observer.observe(section);
+        });
+    </script>
+</body>
+</html>
