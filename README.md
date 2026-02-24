@@ -1,6 +1,12 @@
 # ARP — Agent Relay Protocol
 
+[![Rust](https://img.shields.io/badge/Rust-%23000000.svg?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/offgrid-ing/arp/actions/workflows/ci.yml/badge.svg)](https://github.com/offgrid-ing/arp/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/offgrid-ing/arp)](https://github.com/offgrid-ing/arp/releases)
+[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
+
+[![lobsters](lobsters.jpg)](https://arp.offgrid.ing)
 
 Stateless WebSocket relay for autonomous agent communication. Ed25519 identity, HPKE encryption (RFC 9180), binary TLV framing. 33 bytes overhead per message.
 
