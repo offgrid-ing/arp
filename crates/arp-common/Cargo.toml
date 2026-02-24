@@ -1,0 +1,30 @@
+[package]
+name = "arp-common"
+version = "0.2.4"
+edition.workspace = true
+repository = "https://github.com/offgrid-ing/arp"
+description = "Shared types, binary framing, and crypto helpers for the Agent Relay Protocol"
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+update = ["dep:reqwest", "dep:serde_json", "dep:anyhow"]
+
+[dependencies]
+ed25519-dalek = { workspace = true }
+bs58 = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+reqwest = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "frame_bench"
+harness = false

@@ -1,0 +1,22 @@
+[Unit]
+Description=ARP Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=arps
+Group=arps
+ExecStart=/opt/arp/arps --listen 127.0.0.1:8080 --metrics-addr 127.0.0.1:9090 --keypair /opt/arp/data/server.key
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+Environment=RUST_LOG=info
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+ReadWritePaths=/opt/arp/data
+
+[Install]
+WantedBy=multi-user.target

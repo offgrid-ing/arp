@@ -1,0 +1,46 @@
+[package]
+name = "arpc"
+version = "0.2.4"
+edition.workspace = true
+repository = "https://github.com/offgrid-ing/arp"
+description = "Client daemon for the Agent Relay Protocol"
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "arpc"
+path = "src/main.rs"
+
+[lib]
+name = "arpc"
+path = "src/lib.rs"
+
+[features]
+default = ["encryption"]
+encryption = ["dep:hpke", "dep:rand_core"]
+
+[dependencies]
+arp-common = { path = "../arp-common", features = ["update"] }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
+rustls = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+hpke = { workspace = true, optional = true }
+rand_core = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+clap = { workspace = true }
+config = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+dirs = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }

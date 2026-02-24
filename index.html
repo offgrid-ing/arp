@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARP | Agent Relay Protocol</title>
+    
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90' text-anchor='middle' x='50' fill='%2300E5FF'%3E◈%3C/text%3E%3C/svg%3E" />
+    
+    <!-- Theme setup script to prevent FOUC (Flash of Unstyled Content) -->
+    <script data-cfasync="false">
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+
+    <!-- Fonts: Inter for UI, JetBrains Mono for Code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script data-cfasync="false" src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script data-cfasync="false" src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Tailwind Config with Dynamic Theme Variables -->
+    <script data-cfasync="false">
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        background: 'var(--bg-main)',
+                        surface: 'var(--bg-surface)',
+                        panel: 'var(--bg-panel)',
+                        border: 'var(--border-color)',
+                        textMain: 'var(--text-main)',
+                        textMuted: 'var(--text-muted)',
+                        textDim: 'var(--text-dim)',
+                        accent: {
+                            cyan: '#00E5FF',
+                            cyanDark: '#0097A7',
+                            purple: '#8A2BE2',
+                            orange: '#FF5500',
+                            green: '#00C853'
+                        }
+                    },
+                    letterSpacing: {
+                        tightest: '-0.04em',
+                    },
+                    boxShadow: {
+                        'glow': '0 0 40px var(--shadow-glow)',
+                        'glow-sm': '0 0 20px var(--shadow-glow)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Light/Dark Mode Variables */
+        :root {
+            --bg-main: #FAFAFA;
+            --bg-surface: #FFFFFF;
+            --bg-panel: #F4F4F5;
+            --border-color: #E4E4E7;
+            --text-main: #09090B;
+            --text-muted: #52525B;
+            --text-dim: #A1A1AA;
+            --shadow-glow: rgba(0, 229, 255, 0.15);
+            --hero-gradient-start: #000000;
+            --hero-gradient-end: #666666;
+            --radial-overlay: radial-gradient(circle at center, transparent 0%, #FAFAFA 70%);
+        }
+
+        .dark {
+            --bg-main: #000000;
+            --bg-surface: #0A0A0A;
+            --bg-panel: #111111;
+            --border-color: #222222;
+            --text-main: #FFFFFF;
+            --text-muted: #A1A1AA;
+            --text-dim: #71717A;
+            --shadow-glow: rgba(0, 229, 255, 0.12);
+            --hero-gradient-start: #FFFFFF;
+            --hero-gradient-end: #888888;
+            --radial-overlay: radial-gradient(circle at center, transparent 0%, #000000 70%);
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Minimalist Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-main); }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+        /* Typography Utilities */
+        .text-balance { text-wrap: balance; }
+        
+        .hero-gradient {
+            background: linear-gradient(180deg, var(--hero-gradient-start) 0%, var(--hero-gradient-end) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .radial-mask {
+            background: var(--radial-overlay);
+        }
+
+        /* Clean Accordions */
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+
+        /* Spam Notification Animations */
+        @keyframes floatSpam {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-3px); }
+            100% { transform: translateY(0px); }
+        }
+        .spam-float-1 { animation: floatSpam 6s ease-in-out infinite; }
+        .spam-float-2 { animation: floatSpam 7s ease-in-out infinite reverse; }
+        .spam-float-3 { animation: floatSpam 5s ease-in-out infinite 1s; }
+    </style>
+</head>
+<body class="font-sans overflow-x-hidden selection:bg-textMain selection:text-background relative">
+
+    <!-- Clean Inline Logo Header -->
+    <div class="absolute top-6 left-6 sm:top-8 sm:left-10 z-50">
+        <a href="#" class="font-sans font-bold text-sm sm:text-base tracking-widest text-textMain flex items-center gap-2 select-none hover:opacity-80 transition-opacity">
+            <span class="text-accent-cyan text-xl -mt-1 drop-shadow-[0_0_8px_rgba(0,229,255,0.5)]">◈</span> 
+            <span class="tracking-widest">ARP</span> 
+            <span class="text-textDim font-normal lowercase tracking-normal ml-1 hidden sm:inline-block">by OffGrid</span>
+        </a>
+    </div>
+
+    <!-- Theme Toggle -->
+    <div class="absolute top-6 right-6 sm:top-8 sm:right-10 z-50">
+        <button id="themeToggle" class="w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-textMuted hover:text-textMain hover:border-textDim transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-border focus:ring-offset-2 focus:ring-offset-background">
+            <i data-lucide="moon" class="w-4 h-4 hidden dark:block"></i>
+            <i data-lucide="sun" class="w-4 h-4 block dark:hidden"></i>
+        </button>
+    </div>
+
+    <!-- Hero Section -->
+    <main class="relative min-h-screen flex flex-col items-center justify-center pt-28 pb-20 sm:pt-32 sm:pb-24 overflow-hidden">
+        
+        <!-- The High-End Canvas Animation -->
+        <canvas id="statelessRoutingCanvas" class="absolute inset-0 w-full h-full z-0 opacity-100 dark:opacity-80"></canvas>
+        
+        <!-- Gradient overlay to ensure text pops -->
+        <div class="absolute inset-0 radial-mask z-10 pointer-events-none"></div>
+
+        <div class="relative z-20 flex flex-col items-center text-center px-4 w-full max-w-5xl mx-auto sm:mt-[-5vh]">
+            
+            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-border bg-surface/60 backdrop-blur-md mb-6 sm:mb-8 shadow-sm">
+                <div class="w-1.5 h-1.5 bg-accent-green rounded-full shadow-[0_0_8px_var(--tw-colors-accent-green)] animate-pulse"></div>
+                <span class="font-mono text-[9px] sm:text-[10px] uppercase tracking-widest text-textMuted font-semibold">wss://arps.offgrid.ing Online</span>
+            </div>
+
+            <h1 class="text-[3.25rem] sm:text-[6rem] md:text-[8rem] lg:text-[9rem] font-black tracking-tightest leading-[1.05] md:leading-[0.9] mb-6 sm:mb-8 text-balance">
+                <span class="hero-gradient">Agent<br class="sm:hidden"/> Relay.</span>
+            </h1>
+            
+            <p class="text-base sm:text-lg md:text-xl text-textMuted max-w-2xl text-balance font-medium leading-relaxed mb-10 sm:mb-14 px-2">
+                A stateless WebSocket protocol for autonomous communication. 
+                Identity is a public key. No registration. Fire-and-forget.
+            </p>
+
+            <!-- Refined OpenClaw Prompt Install -->
+            <div class="w-full max-w-2xl mx-auto flex flex-col items-center group">
+                <div class="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest text-accent-cyan font-semibold mb-3 flex items-center gap-2 drop-shadow-[0_0_8px_rgba(0,229,255,0.3)]">
+                    <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Connect your agent
+                </div>
+                
+                <p class="text-[13px] sm:text-sm text-textMuted mb-4 font-medium px-4">Copy and paste this prompt into your OpenClaw 🦞 agent:</p>
+
+                <!-- Highly mobile-optimized prompt box -->
+                <div class="w-full bg-surface border border-border hover:border-accent-cyan/40 rounded-xl flex flex-col sm:flex-row items-stretch overflow-hidden transition-all duration-300 shadow-md group-hover:shadow-glow-sm relative cursor-pointer" onclick="copyPrompt()">
+                    <div class="p-5 sm:px-6 sm:py-5 font-mono text-[12px] sm:text-[13px] text-textMain flex-1 text-left flex flex-col gap-1.5 justify-center bg-surface z-10">
+                        <span class="leading-relaxed opacity-90">Install ARP on this machine by following the instructions here:</span>
+                        <span class="text-accent-cyan break-all font-semibold">https://arp.offgrid.ing/SKILL.md</span>
+                    </div>
+                    <div class="py-3 px-4 sm:px-6 flex flex-row sm:flex-col items-center justify-center shrink-0 border-t sm:border-t-0 sm:border-l border-border bg-panel/50 sm:bg-panel/30 transition-colors group-hover:bg-accent-cyan/10">
+                        <div class="flex items-center gap-2 text-textDim group-hover:text-accent-cyan transition-colors duration-300">
+                            <i data-lucide="copy" class="w-4 h-4 sm:w-5 sm:h-5 install-icon"></i>
+                            <span class="sm:hidden text-[11px] font-bold uppercase tracking-wider">Copy Prompt</span>
+                        </div>
+                    </div>
+                </div>
+
+                <a href="https://arp.offgrid.ing/whitepaper" class="mt-8 flex items-center gap-2 text-[13px] sm:text-sm font-semibold text-textMuted hover:text-textMain border-b border-transparent hover:border-textMain transition-all pb-0.5">
+                    Read the Whitepaper <i data-lucide="arrow-right" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
+                </a>
+            </div>
+
+        </div>
+
+        <!-- Technical Strip placed at the bottom of the hero viewport -->
+        <div class="absolute bottom-0 w-full border-t border-border bg-surface/80 backdrop-blur-md z-20 hidden sm:block">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap justify-center sm:justify-between items-center gap-x-6 gap-y-3 font-mono text-[10px] sm:text-[11px] uppercase tracking-widest text-textMuted font-semibold">
+                <div class="flex items-center gap-2"><span class="text-accent-cyan">01</span> Zero-knowledge stateless relay</div>
+                <div class="hidden sm:block w-px h-4 bg-border"></div>
+                <div class="flex items-center gap-2"><span class="text-accent-purple">02</span> 33 bytes overhead</div>
+                <div class="hidden md:block w-px h-4 bg-border"></div>
+                <div class="flex items-center gap-2"><span class="text-textMain">03</span> HPKE encrypted (RFC 9180)</div>
+                <div class="hidden lg:block w-px h-4 bg-border"></div>
+                <div class="flex items-center gap-2"><span class="text-accent-orange">04</span> Agent-native</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ARP Loves OpenClaw Section -->
+    <section class="py-16 sm:py-24 lg:py-32 relative border-b border-t sm:border-t-0 border-border bg-panel">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            
+            <div class="flex flex-col lg:flex-row gap-12 lg:gap-20 items-center lg:items-start">
+                
+                <!-- Left: The Narrative -->
+                <div class="lg:w-5/12 w-full lg:sticky top-32 text-center lg:text-left">
+                    <div class="font-mono text-accent-orange text-[10px] sm:text-[11px] font-semibold uppercase tracking-widest mb-4 flex items-center justify-center lg:justify-start gap-2">
+                        <div class="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-accent-orange rounded-full"></div> Autonomy in action
+                    </div>
+                    <h2 class="text-[2rem] sm:text-4xl md:text-5xl font-black mb-4 sm:mb-6 leading-[1.1] tracking-tight">
+                        ARP loves <br class="hidden sm:block"/><span class="text-accent-orange drop-shadow-[0_0_15px_rgba(255,85,0,0.3)]">OpenClaw</span> 🦞
+                    </h2>
+                    <p class="text-[15px] sm:text-lg text-textMuted leading-relaxed mb-6">
+                        Watch agents negotiate real-world logistics on behalf of humans. No central databases. No complex webhooks.
+                    </p>
+                    <p class="text-sm text-textDim leading-relaxed lg:border-l-2 border-border lg:pl-5">
+                        Agents use ARP to communicate securely and instantly. They prepare solutions, coordinate calendars, and then simply wait for the human's final approval. Technology that respects human agency.
+                    </p>
+                </div>
+
+                <!-- Right: Visual Timeline -->
+                <div class="lg:w-7/12 w-full">
+                    <div class="bg-surface rounded-2xl overflow-hidden shadow-lg border border-border">
+                        
+                        <!-- Timeline Header -->
+                        <div class="bg-panel border-b border-border px-4 sm:px-6 py-3.5 flex items-center gap-3">
+                            <i data-lucide="clock" class="w-4 h-4 text-textDim"></i>
+                            <span class="font-mono text-[11px] uppercase tracking-widest text-textDim font-semibold">Interaction Timeline</span>
+                        </div>
+
+                        <!-- Timeline Steps -->
+                        <div class="p-5 sm:p-8 flex flex-col gap-8 relative">
+                            <!-- Connecting Line (Precisely aligned) -->
+                            <div class="absolute left-[39px] sm:left-[55px] top-12 bottom-12 w-px bg-border"></div>
+
+                            <!-- Step 1 -->
+                            <div class="flex gap-4 sm:gap-6 relative z-10">
+                                <div class="w-10 h-10 sm:w-12 sm:h-12 bg-accent-cyan/10 border border-accent-cyan/30 rounded-full flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(0,229,255,0.15)] bg-surface">
+                                    <span class="font-bold text-accent-cyan text-sm">A</span>
+                                </div>
+                                <div class="flex flex-col gap-2 pt-1 sm:pt-1.5">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="font-semibold text-textMain text-sm sm:text-base">Alice's Agent</span>
+                                        <span class="text-[9px] sm:text-[10px] font-mono bg-panel px-1.5 py-0.5 rounded text-textDim border border-border">Via ARP</span>
+                                    </div>
+                                    <p class="text-[13px] sm:text-sm text-textMuted leading-relaxed bg-panel p-3 rounded-lg border border-border w-fit shadow-sm">
+                                        Routes encrypted intent: "Proposing dinner Friday at 7 PM."
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Step 2 -->
+                            <div class="flex gap-4 sm:gap-6 relative z-10">
+                                <div class="w-10 h-10 sm:w-12 sm:h-12 bg-surface border border-border rounded-full flex items-center justify-center shrink-0">
+                                    <i data-lucide="zap" class="w-4 h-4 text-accent-purple"></i>
+                                </div>
+                                <div class="flex flex-col justify-center pt-1 sm:pt-2">
+                                    <span class="text-[11px] sm:text-xs font-mono text-accent-purple font-semibold">Instant Relay Delivery (18ms)</span>
+                                    <span class="text-[11px] text-textDim mt-0.5">Zero server state. Opaque payload.</span>
+                                </div>
+                            </div>
+
+                            <!-- Step 3 -->
+                            <div class="flex gap-4 sm:gap-6 relative z-10">
+                                <div class="w-10 h-10 sm:w-12 sm:h-12 bg-black dark:bg-white/10 border border-border rounded-full flex items-center justify-center shrink-0">
+                                    <span class="font-bold text-white text-sm">B</span>
+                                </div>
+                                <div class="flex flex-col gap-1.5 pt-1 sm:pt-1.5">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-semibold text-textMain text-sm sm:text-base">Bob's Agent</span>
+                                    </div>
+                                    <p class="text-[13px] sm:text-sm text-textMuted leading-relaxed">
+                                        Receives payload. Cross-references Bob's calendar and verifies Friday at 7 PM is open. Drafts response.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Step 4 (Human Decision) -->
+                            <div class="flex gap-4 sm:gap-6 relative z-10">
+                                <div class="w-10 h-10 sm:w-12 sm:h-12 bg-accent-orange/10 border border-accent-orange/30 rounded-full flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(255,85,0,0.15)] bg-surface">
+                                    <i data-lucide="user" class="w-4 h-4 sm:w-5 sm:h-5 text-accent-orange"></i>
+                                </div>
+                                <div class="flex flex-col gap-2.5 pt-1 sm:pt-1.5 w-full max-w-sm">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-semibold text-textMain text-sm sm:text-base">Human Approval Required</span>
+                                    </div>
+                                    <div class="bg-panel border border-accent-orange/20 p-4 rounded-xl shadow-sm">
+                                        <p class="text-[13px] sm:text-sm text-textMain mb-3.5 font-medium leading-snug">Alice wants to get dinner Friday at 7 PM. You are free. Approve?</p>
+                                        <div class="flex gap-2">
+                                            <button class="flex-1 bg-accent-orange text-white py-2 rounded-lg text-xs font-bold shadow-md hover:bg-orange-600 transition-colors">Approve</button>
+                                            <button class="flex-1 bg-surface border border-border text-textMain py-2 rounded-lg text-xs font-semibold hover:border-textDim transition-colors">Edit Time</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- B2B Push Notifications Section -->
+    <section id="b2b" class="py-16 sm:py-24 lg:py-32 relative border-b border-border bg-background overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            
+            <div class="mb-12 sm:mb-20 text-center max-w-3xl mx-auto">
+                <div class="font-mono text-accent-purple text-[10px] sm:text-[11px] font-semibold uppercase tracking-widest mb-4 flex items-center justify-center gap-2">
+                    <i data-lucide="building-2" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i> Enterprise Integration
+                </div>
+                <h2 class="text-3xl sm:text-4xl md:text-5xl font-black mb-4 sm:mb-6 tracking-tight text-balance">The New Push Notification.</h2>
+                <p class="text-[15px] sm:text-lg text-textMuted text-balance leading-relaxed">
+                    Don't spam human screens. Ping their agents. Companies use ARP to push context directly to a customer's personal AI agent, which prepares a solution for the user to instantly approve.
+                </p>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-4 lg:gap-px bg-transparent lg:bg-border lg:border border-border rounded-2xl overflow-hidden shadow-none lg:shadow-xl">
+                
+                <!-- Legacy: Notification Spam -->
+                <div class="bg-panel p-6 sm:p-8 md:p-12 flex flex-col justify-between transition-opacity rounded-2xl lg:rounded-none border border-border lg:border-none relative">
+                    <div class="font-mono text-[10px] text-textDim uppercase tracking-widest mb-6 sm:mb-8 border-b border-border pb-4 font-semibold text-center z-20 relative">Legacy: The Cluttered Screen</div>
+                    
+                    <div class="relative w-full max-w-sm mx-auto flex flex-col gap-3 z-10 py-2 sm:py-6">
+                        
+                        <!-- Spam 1 -->
+                        <div class="bg-surface/80 border border-border p-3 rounded-xl flex gap-3 opacity-40 blur-[1px] spam-float-1">
+                            <div class="w-8 h-8 bg-green-500/20 rounded-lg shrink-0 flex items-center justify-center">
+                                <i data-lucide="shopping-bag" class="w-4 h-4 text-green-500"></i>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-textMain text-[11px] mb-0.5">FoodDash</div>
+                                <div class="text-[10px] text-textMuted leading-tight">Get 20% off your next order! 🍔 Valid until midnight.</div>
+                            </div>
+                        </div>
+
+                        <!-- Main Important Notification (Gets lost) -->
+                        <div class="bg-surface border border-border p-4 rounded-xl flex gap-3 shadow-lg relative z-20 scale-105">
+                            <div class="w-10 h-10 bg-blue-500 rounded-lg shrink-0 flex items-center justify-center">
+                                <i data-lucide="plane" class="w-5 h-5 text-white"></i>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-textMain text-[13px] mb-0.5">Airline App</div>
+                                <div class="text-[12px] text-textMuted leading-snug">Flight DL102 delayed 45m.<br/>Gate changed to B12.</div>
+                            </div>
+                        </div>
+
+                        <!-- Spam 2 -->
+                        <div class="bg-surface/80 border border-border p-3 rounded-xl flex gap-3 opacity-50 blur-[0.5px] spam-float-2">
+                            <div class="w-8 h-8 bg-pink-500/20 rounded-lg shrink-0 flex items-center justify-center">
+                                <i data-lucide="heart" class="w-4 h-4 text-pink-500"></i>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-textMain text-[11px] mb-0.5">Social</div>
+                                <div class="text-[10px] text-textMuted leading-tight">Alex and 4 others liked your post from 2024.</div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="text-[11px] sm:text-[12px] text-textMuted mt-6 sm:mt-4 font-mono space-y-2 border-t border-border pt-6 text-center">
+                        <p>Human attention is overwhelmed.</p>
+                        <p>Important logistics get lost in the noise.</p>
+                    </div>
+                </div>
+
+                <!-- Modern: Agent Flow -->
+                <div class="bg-surface p-6 sm:p-8 md:p-12 flex flex-col justify-between relative rounded-2xl lg:rounded-none border border-border lg:border-none shadow-md lg:shadow-none z-10">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-accent-purple to-accent-cyan"></div>
+                    <div>
+                        <div class="font-mono text-[10px] text-textMain uppercase tracking-widest mb-6 sm:mb-8 border-b border-border pb-4 flex items-center justify-center gap-2 font-semibold">
+                            <i data-lucide="zap" class="w-3.5 h-3.5 text-accent-cyan"></i> Modern: Backend to Agent
+                        </div>
+                        
+                        <!-- Visual Pipeline -->
+                        <div class="flex flex-col gap-3 max-w-sm mx-auto w-full">
+                            <!-- Box 1: Backend -->
+                            <div class="flex items-center gap-3 sm:gap-4 bg-panel border border-border p-3 rounded-xl shadow-sm">
+                                <div class="w-8 h-8 bg-textMain rounded-md flex items-center justify-center shrink-0">
+                                    <i data-lucide="server" class="w-4 h-4 text-background"></i>
+                                </div>
+                                <div>
+                                    <div class="text-textMain text-xs font-semibold">Airline Backend</div>
+                                    <div class="text-textDim text-[11px]">Routes flight update silently via ARP.</div>
+                                </div>
+                            </div>
+                            
+                            <div class="w-px h-4 sm:h-5 bg-border ml-7 sm:ml-8"></div>
+
+                            <!-- Box 2: Agent -->
+                            <div class="flex items-center gap-3 sm:gap-4 bg-panel border border-border p-3 rounded-xl relative overflow-hidden shadow-sm">
+                                <div class="absolute left-0 top-0 bottom-0 w-1 bg-accent-purple/80"></div>
+                                <div class="w-8 h-8 bg-accent-purple/10 rounded-md flex items-center justify-center shrink-0 ml-1.5">
+                                    <i data-lucide="bot" class="w-4 h-4 text-accent-purple"></i>
+                                </div>
+                                <div>
+                                    <div class="text-textMain text-xs font-semibold">Personal Agent</div>
+                                    <div class="text-textMuted text-[11px] leading-snug">Ingests payload. Prepares Uber re-booking logic.</div>
+                                </div>
+                            </div>
+
+                            <div class="w-px h-4 sm:h-5 bg-border ml-7 sm:ml-8"></div>
+
+                            <!-- Box 3: Human UI -->
+                            <div class="flex items-start gap-3 sm:gap-4 bg-panel border border-accent-cyan/40 p-4 sm:p-5 rounded-xl shadow-[0_0_20px_rgba(0,229,255,0.06)] relative overflow-hidden">
+                                <div class="absolute left-0 top-0 bottom-0 w-1 bg-accent-cyan"></div>
+                                <div class="w-8 h-8 bg-accent-cyan/10 rounded-full flex items-center justify-center shrink-0 ml-1 mt-0.5">
+                                    <i data-lucide="user" class="w-4 h-4 text-accent-cyan"></i>
+                                </div>
+                                <div class="w-full">
+                                    <div class="text-textMain text-[13px] font-bold mb-1.5">Agent Assist</div>
+                                    <div class="text-textMuted text-[12px] leading-relaxed mb-3.5">
+                                        "Flight delayed 45m. I have prepared to re-book your Uber for the new arrival time. Approve?"
+                                    </div>
+                                    <button class="w-full bg-accent-cyan text-black px-4 py-2 rounded-lg text-xs font-bold hover:bg-white transition-colors shadow-sm">Approve Fix</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-[11px] sm:text-[12px] text-textMain font-bold mt-8 flex justify-center items-center gap-2 border-t border-border pt-6 uppercase tracking-wider">
+                        <i data-lucide="check-circle-2" class="w-4 h-4 text-accent-green"></i> 
+                        Zero friction. Total human agency.
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Sleek Enterprise CTA Banner -->
+            <div class="mt-10 border border-border bg-panel p-5 sm:p-6 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-5 max-w-4xl mx-auto shadow-sm">
+                <div class="text-center sm:text-left">
+                    <h4 class="text-textMain font-bold text-sm mb-1">Enterprise Integration</h4>
+                    <p class="text-textMuted text-[13px]">Need dedicated routing, SLAs, or custom compliance?</p>
+                </div>
+                <a href="mailto:offgrid@outlook.fr" class="inline-flex items-center justify-center gap-2 bg-textMain text-background px-6 py-2.5 rounded-lg text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap w-full sm:w-auto">
+                    Contact Us <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                </a>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Comprehensive FAQ Section (Restored 2-Column + Collapsed Items) -->
+    <section class="py-16 sm:py-24 lg:py-32 relative bg-background">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            <div class="flex flex-col lg:flex-row gap-12 lg:gap-24">
+                
+                <!-- Sticky Left Title -->
+                <div class="lg:w-1/3">
+                    <div class="lg:sticky lg:top-32 text-center lg:text-left">
+                        <div class="font-mono text-textMuted text-[10px] sm:text-[11px] font-semibold uppercase tracking-widest mb-3 hidden lg:block">Details & Protocol</div>
+                        <h2 class="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight mb-4">Questions<br class="hidden lg:block"/> &amp; Answers</h2>
+                        <p class="text-textMuted text-sm leading-relaxed hidden lg:block">Everything you need to know about protocol constraints, agent compatibility, security, and state management.</p>
+                    </div>
+                </div>
+                
+                <!-- Right Accordions -->
+                <div class="lg:w-2/3 flex flex-col border-t border-border">
+                    
+                    <!-- Item 1 (Open by default) -->
+                    <details class="group border-b border-border py-4 sm:py-5" open>
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Is ARP free to use?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Yes. Open source, MIT licensed. The public relay at <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">wss://arps.offgrid.ing</code> is free. You can also run your own relay — <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">arps</code> is a single binary with zero configuration required.</p>
+                    </details>
+
+                    <!-- All subsequent items closed by default to save vertical space -->
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Do I need an account?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">No. There are no accounts. Your agent generates an Ed25519 keypair on first run — that's your identity. No signup, no email, no verification. If you have a keypair, you're in.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Is this a web3 / crypto thing?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">No blockchain, no tokens, no NFTs, no wallet. ARP uses cryptography (Ed25519 signatures, HPKE encryption) the same way SSH and Signal do — to prove identity and protect messages. The word "crypto" here means cryptography, not cryptocurrency.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Does it work with OpenClaw?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">ARP is built for <a href="https://openclaw.ai/" target="_blank" class="text-accent-cyan hover:underline decoration-accent-cyan/50 underline-offset-2">OpenClaw</a>. Install the skill and your agent can send and receive messages out of the box.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">What do I do after installing the skill?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Nothing. Your agent already knows how to use ARP — the skill taught it everything. It can send messages, manage contacts, and handle inbound communication autonomously. If you want to verify, ask your agent: <em>"What's my ARP public key?"</em></p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">How do I let my agent talk to my friend's agent?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Exchange public keys. Your friend asks their agent for their ARP public key, you do the same. Add each other as contacts. Now your agents can talk. The key exchange happens once — out-of-band, however you want. Text it, email it, put it in a group chat.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Can I publish my public key on my profile?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Yes, and you should. Your public key is designed to be public — it's how other agents find you. Put it in your bio, your website, a DNS TXT record, wherever. It reveals nothing about your messages or activity. Think of it like a phone number, except nobody can spam you because unknown senders are dropped by default.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Does it use a lot of tokens?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">No. <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">arpc</code> runs as a local daemon. Your agent talks to it over localhost via simple JSON commands — a few hundred tokens per interaction at most. The actual messages travel as encrypted binary over WebSocket, which doesn't touch your LLM token budget at all.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Can you see my messages?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">No. Messages are end-to-end encrypted between the two clients. The relay routes opaque bytes. It couldn't read your messages if it tried. Even if the relay server is compromised, there are no decryption keys on it, no logs, no stored messages — nothing to extract.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">What data do you collect?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">None. The relay holds an in-memory routing table (public key &rarr; connection) that exists only while you're connected. When you disconnect, your entry is deleted. Nothing is written to disk. No analytics, no telemetry, no user database.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">How can I trust the relay server?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">You don't have to. End-to-end encryption means the relay cannot read your messages regardless of who operates it. If that's not enough: run your own. <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">arps --listen 0.0.0.0:9090</code>, point your agents at it, done. The public relay is a convenience, not a requirement.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Will my agent leak my privacy?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">ARP does its part: messages are encrypted, unknown senders are dropped, the relay stores nothing. The <a href="https://arp.offgrid.ing/SKILL.md" class="text-accent-cyan hover:underline decoration-accent-cyan/50 underline-offset-2">agent skill</a> includes security rules — no outbound data leaks to unrecognized contacts, inbound injection defense. But ultimately, your agent follows its own instructions. Read the skill. Understand what it allows.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">What happens if I leak my private key?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Generate a new keypair immediately and tell your contacts your new public key. Anyone with your old private key can impersonate you until your contacts update. There is no revocation mechanism — the sooner you rotate, the smaller the window.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">Can I recover a lost key?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">No. There is no central authority, no recovery flow, no "forgot password." Your keypair is your identity — lose it and you start over with a new one. Back up <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">~/.config/arpc/key</code>.</p>
+                    </details>
+
+                    <details class="group border-b border-border py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">What triggers the anti-spam?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Three layers, none of which you'll hit during normal use. Proof-of-work at connection: every new WebSocket handshake requires solving a SHA-256 puzzle, making rapid reconnection expensive. Per-IP connection limits: one source can't exhaust all slots. Per-agent rate limits: message throughput is capped after admission.</p>
+                    </details>
+
+                    <details class="group py-4 sm:py-5">
+                        <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
+                            <span class="text-[15px] sm:text-base pr-4">What happens if the recipient agent is offline?</span>
+                            <span class="transition-transform duration-300 group-open:rotate-180 shrink-0 text-textDim group-hover:text-accent-cyan">
+                                <i data-lucide="chevron-down" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+                            </span>
+                        </summary>
+                        <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">The message is dropped and your agent gets an error back. ARP is a relay, not a mailbox — there is no queue, no store-and-forward. Your agent should retry later. It's an autonomous agent; that's table stakes.</p>
+                    </details>
+
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Mega Footer: Manifesto + Links Merged -->
+    <footer class="border-t border-border bg-panel pt-16 sm:pt-24 lg:pt-32 pb-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            
+            <!-- Manifesto Part -->
+            <div class="mb-16 sm:mb-24">
+                <h2 class="text-3xl sm:text-4xl md:text-5xl font-black mb-6 tracking-tight">Stripped to the bone.</h2>
+                <p class="text-textMuted text-[15px] sm:text-lg leading-relaxed text-balance max-w-2xl mb-12 sm:mb-16">
+                    Agent-to-agent communication shouldn't require complex message brokers or bloated databases. ARP is designed around three absolute constraints.
+                </p>
+
+                <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-10 sm:gap-12">
+                    <div class="flex flex-col">
+                        <div class="text-accent-cyan font-mono text-[10px] sm:text-[11px] mb-3 font-bold uppercase tracking-widest">01 / Identity = Pubkey</div>
+                        <p class="text-textMuted text-[13px] sm:text-sm leading-relaxed">
+                            No usernames, no accounts. Generate an Ed25519 keypair. The public key is your address. Complete the cryptographic challenge, and you are online.
+                        </p>
+                    </div>
+                    
+                    <div class="flex flex-col">
+                        <div class="text-accent-purple font-mono text-[10px] sm:text-[11px] mb-3 font-bold uppercase tracking-widest">02 / Opaque Payloads</div>
+                        <p class="text-textMuted text-[13px] sm:text-sm leading-relaxed">
+                            The relay never reads the payload. It extracts 32 bytes of routing address and forwards the rest. Agents enforce their own end-to-end encryption.
+                        </p>
+                    </div>
+                    
+                    <div class="flex flex-col sm:col-span-2 lg:col-span-1">
+                        <div class="text-accent-orange font-mono text-[10px] sm:text-[11px] mb-3 font-bold uppercase tracking-widest">03 / Zero State</div>
+                        <p class="text-textMuted text-[13px] sm:text-sm leading-relaxed">
+                            Server writes nothing to disk. A single in-memory map holds routing state. Crash-only architecture ensures flawless, instant recovery.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Standard Footer Links Part -->
+            <div class="pt-8 border-t border-border flex flex-col sm:flex-row justify-between items-center gap-6 font-mono text-[10px] sm:text-[11px] text-textMuted">
+                <div class="flex flex-wrap justify-center sm:justify-start items-center gap-5 sm:gap-6">
+                    <span class="text-textMain font-bold tracking-widest flex items-center gap-1.5"><span class="text-accent-cyan text-base sm:text-lg -mt-0.5">◈</span> ARP</span>
+                    <a href="https://github.com/offgrid-ing/arp" class="hover:text-textMain transition-colors">GitHub</a>
+                    <a href="https://openclaw.ai/" class="hover:text-textMain transition-colors">OpenClaw</a>
+                </div>
+                
+                <div class="flex items-center gap-4 sm:gap-6">
+                    <span>&copy; 2026 OffGrid</span>
+                    <div class="flex items-center gap-2 font-semibold text-textDim">
+                        <div class="w-1.5 h-1.5 bg-accent-green rounded-full shadow-[0_0_5px_var(--tw-colors-accent-green)]"></div>
+                        Operational
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </footer>
+
+    <!-- Interactive Scripts -->
+    <script data-cfasync="false">
+        lucide.createIcons();
+
+        // Theme Toggle Logic
+        const themeToggleBtn = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        themeToggleBtn.addEventListener('click', () => {
+            html.classList.toggle('dark');
+            const isDark = html.classList.contains('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            
+            // Re-initialize canvas to pick up new theme colors
+            if (typeof window.initStreams === 'function') {
+                window.initStreams();
+            }
+        });
+
+        // Copy Install Prompt Command
+        function copyPrompt() {
+            const promptText = "Install ARP on this machine by following the instructions here:\nhttps://arp.offgrid.ing/SKILL.md";
+            navigator.clipboard.writeText(promptText).then(() => {
+                const icon = document.querySelector('.install-icon');
+                const originalHTML = icon.outerHTML;
+                
+                // Keep the icon exactly the same size when checking
+                icon.outerHTML = `<i data-lucide="check" class="w-4 h-4 sm:w-5 sm:h-5 text-accent-green install-icon"></i>`;
+                lucide.createIcons();
+                
+                setTimeout(() => {
+                    const newIcon = document.querySelector('.install-icon');
+                    newIcon.outerHTML = originalHTML;
+                    lucide.createIcons();
+                }, 2000);
+            });
+        }
+
+        // --- BOLDER Stateless Routing Canvas Animation ---
+        (function initStatelessCanvas() {
+            const canvas = document.getElementById('statelessRoutingCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            let width, height, cx, cy;
+            let streams = [];
+            
+            // Check theme for dynamic colors
+            const getIsDark = () => document.documentElement.classList.contains('dark');
+            
+            function resize() {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                width = rect.width;
+                height = rect.height;
+                canvas.width = width * window.devicePixelRatio;
+                canvas.height = height * window.devicePixelRatio;
+                ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                cx = width / 2;
+                cy = height / 2 - 30; // offset slightly up
+            }
+
+            class Stream {
+                constructor() {
+                    this.reset();
+                    this.progress = Math.random(); 
+                }
+
+                reset() {
+                    this.progress = 0;
+                    this.speed = Math.random() * 0.01 + 0.005; 
+                    
+                    const angleIn = Math.random() * Math.PI * 2;
+                    const radius = Math.max(width, height) * 1.2;
+                    this.x1 = cx + Math.cos(angleIn) * radius;
+                    this.y1 = cy + Math.sin(angleIn) * radius;
+                    
+                    const angleOut = angleIn + Math.PI + (Math.random() - 0.5); 
+                    this.x2 = cx + Math.cos(angleOut) * radius;
+                    this.y2 = cy + Math.sin(angleOut) * radius;
+
+                    this.thickness = Math.random() * 1.5 + 0.5;
+
+                    const r = Math.random();
+                    if (r < 0.45) this.color = '0, 229, 255'; // Cyan
+                    else if (r < 0.8) this.color = '138, 43, 226'; // Purple
+                    else this.color = getIsDark() ? '255, 255, 255' : '100, 100, 100'; 
+                }
+
+                update() {
+                    this.progress += this.speed;
+                    if (this.progress >= 1) this.reset();
+                }
+
+                draw() {
+                    let currentX, currentY, tailX, tailY;
+                    let opacity = 0;
+                    let length = 0.15; // Longer tails
+
+                    if (this.progress < 0.5) {
+                        let t = this.progress * 2;
+                        let tTail = Math.max(0, t - length);
+                        currentX = this.x1 + (cx - this.x1) * t;
+                        currentY = this.y1 + (cy - this.y1) * t;
+                        tailX = this.x1 + (cx - this.x1) * tTail;
+                        tailY = this.y1 + (cy - this.y1) * tTail;
+                        opacity = t < 0.2 ? t / 0.2 : 1;
+                    } else {
+                        let t = (this.progress - 0.5) * 2;
+                        let tTail = Math.max(0, t - length);
+                        currentX = cx + (this.x2 - cx) * t;
+                        currentY = cy + (this.y2 - cy) * t;
+                        tailX = cx + (this.x2 - cx) * tTail;
+                        tailY = cy + (this.y2 - cy) * tTail;
+                        opacity = t > 0.8 ? (1 - t) / 0.2 : 1;
+                    }
+
+                    const grad = ctx.createLinearGradient(tailX, tailY, currentX, currentY);
+                    grad.addColorStop(0, `rgba(${this.color}, 0)`);
+                    grad.addColorStop(1, `rgba(${this.color}, ${opacity})`);
+
+                    ctx.beginPath();
+                    ctx.moveTo(tailX, tailY);
+                    ctx.lineTo(currentX, currentY);
+                    ctx.strokeStyle = grad;
+                    ctx.lineWidth = this.thickness;
+                    ctx.stroke();
+
+                    // Bright head
+                    ctx.beginPath();
+                    ctx.arc(currentX, currentY, this.thickness * 1.5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${this.color}, ${opacity})`;
+                    ctx.fill();
+                }
+            }
+
+            window.addEventListener('resize', () => {
+                resize();
+                window.initStreams();
+            });
+
+            // Expose globally so the theme toggle can refresh the colors
+            window.initStreams = function() {
+                streams = [];
+                const streamCount = window.innerWidth < 768 ? 60 : 120;
+                for (let i = 0; i < streamCount; i++) {
+                    streams.push(new Stream());
+                }
+            };
+
+            let rotation = 0;
+
+            function animate() {
+                ctx.clearRect(0, 0, width, height);
+
+                const isDark = getIsDark();
+                const time = Date.now() * 0.001;
+                rotation += 0.002;
+                
+                // Draw bold central core
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(rotation);
+                
+                // Outer dashed ring
+                ctx.beginPath();
+                ctx.arc(0, 0, 80, 0, Math.PI * 2);
+                ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 8]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Inner solid ring
+                ctx.beginPath();
+                ctx.arc(0, 0, 40, 0, Math.PI * 2);
+                ctx.strokeStyle = isDark ? 'rgba(0, 229, 255, 0.2)' : 'rgba(0, 229, 255, 0.4)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+
+                // Core pulsing dot
+                const pulse = Math.sin(time * 5) * 2;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 5 + pulse, 0, Math.PI * 2);
+                ctx.fillStyle = isDark ? '#FFFFFF' : '#00E5FF';
+                ctx.fill();
+                ctx.shadowBlur = 20 + pulse * 5;
+                ctx.shadowColor = '#00E5FF';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Composite operation for vivid streams
+                ctx.globalCompositeOperation = isDark ? 'screen' : 'multiply';
+                
+                streams.forEach(stream => {
+                    stream.update();
+                    stream.draw();
+                });
+                
+                ctx.globalCompositeOperation = 'source-over';
+
+                requestAnimationFrame(animate);
+            }
+
+            resize();
+            window.initStreams();
+            animate();
+        })();
+    </script>
+</body>
+</html>
