@@ -70,4 +70,4 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 # Testing
 proptest = "1"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
