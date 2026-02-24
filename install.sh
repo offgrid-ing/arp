@@ -121,13 +121,20 @@ install_binary() {
     case ":$PATH:" in
         *":$INSTALL_DIR:"*) ;;
         *)
+            local path_added=false
             for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
                 if [ -f "$rc" ] && ! grep -q "$INSTALL_DIR" "$rc" 2>/dev/null; then
                     printf '\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$rc"
                     ok "Added to PATH in $(basename "$rc")"
+                    path_added=true
                     break
                 fi
             done
+            # If no RC file existed, create ~/.profile as fallback
+            if [ "$path_added" = false ]; then
+                printf 'export PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$HOME/.profile"
+                ok "Created ~/.profile with PATH entry"
+            fi
             export PATH="$INSTALL_DIR:$PATH"
             ;;
     esac
