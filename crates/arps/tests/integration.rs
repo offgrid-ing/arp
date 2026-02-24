@@ -251,7 +251,8 @@ async fn test_invalid_admission_signature() {
         "Sec-WebSocket-Protocol",
         arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
     );
-    req.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+    req.headers_mut()
+        .insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     let (mut ws_tx, mut ws_rx) = ws.split();
 
@@ -324,7 +325,8 @@ async fn test_admission_timeout() {
         "Sec-WebSocket-Protocol",
         arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
     );
-    req.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+    req.headers_mut()
+        .insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     let (_ws_tx, mut ws_rx) = ws.split();
 
@@ -418,7 +420,8 @@ async fn test_max_connections_limit() {
             "Sec-WebSocket-Protocol",
             arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
         );
-        r.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+        r.headers_mut()
+            .insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
         r
     };
     let connection_result = tokio::time::timeout(
@@ -442,7 +445,6 @@ async fn test_max_connections_limit() {
     }
 }
 
-
 /// Test that admission succeeds with proof-of-work enabled (difficulty 8).
 /// Difficulty 8 requires ~256 hash attempts — fast enough for a test.
 #[tokio::test]
@@ -457,9 +459,7 @@ async fn test_admission_with_pow() {
     let mut client_b = TestClient::connect_with_pow(&addr, &keypair_b).await;
 
     // Verify the connection actually works — send a message through
-    client_a
-        .send_message(&client_b.pubkey, b"pow works")
-        .await;
+    client_a.send_message(&client_b.pubkey, b"pow works").await;
 
     let frame = client_b.recv_deliver().await;
     match frame {
@@ -484,7 +484,8 @@ async fn test_pow_required_rejects_no_nonce() {
             "Sec-WebSocket-Protocol",
             arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
         );
-        r.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+        r.headers_mut()
+            .insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
         r
     };
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
@@ -522,7 +523,6 @@ async fn test_pow_required_rejects_no_nonce() {
     }
     // Connection closed or rejected — both are acceptable
 }
-
 
 /// Test that a direct connection without CF-Connecting-IP header gets rejected.
 #[tokio::test]

@@ -2,9 +2,9 @@ use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::Path;
 #[cfg(unix)]
 const KEY_FILE_PERMS: u32 = 0o600;
 

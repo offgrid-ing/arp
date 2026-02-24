@@ -25,7 +25,6 @@ use tokio_tungstenite::WebSocketStream;
 type WsSink = SplitSink<WebSocketStream<TcpStream>, Message>;
 type WsRecv = SplitStream<WebSocketStream<TcpStream>>;
 
-
 struct IpGuard {
     state: Arc<ServerState>,
     ip: IpAddr,
@@ -84,7 +83,9 @@ async fn perform_admission(
         Ok(Err(e)) => {
             counters::admissions_total("rejected");
             let reason = match &e {
-                ArpsError::TimestampExpired => arp_common::types::rejection_reason::TIMESTAMP_EXPIRED,
+                ArpsError::TimestampExpired => {
+                    arp_common::types::rejection_reason::TIMESTAMP_EXPIRED
+                }
                 ArpsError::InvalidPoW => arp_common::types::rejection_reason::INVALID_POW,
                 ArpsError::SignatureError(_) => arp_common::types::rejection_reason::BAD_SIG,
                 _ => arp_common::types::rejection_reason::BAD_SIG,
@@ -239,7 +240,10 @@ pub async fn handle_connection(
         Some(ip) => ip,
         None => {
             // No CF-Connecting-IP header — connection bypassed Cloudflare Tunnel.
-            tracing::warn!("rejecting direct connection from {} (no CF-Connecting-IP)", peer_addr);
+            tracing::warn!(
+                "rejecting direct connection from {} (no CF-Connecting-IP)",
+                peer_addr
+            );
             return Err(ArpsError::ConnectionClosed);
         }
     };

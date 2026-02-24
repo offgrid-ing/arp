@@ -31,7 +31,6 @@ impl Router {
         }
     }
 
-
     /// Insert a connection handle, returning any previous handle for the same key.
     #[must_use]
     pub fn insert(&self, pubkey: Pubkey, handle: ConnHandle) -> Option<ConnHandle> {

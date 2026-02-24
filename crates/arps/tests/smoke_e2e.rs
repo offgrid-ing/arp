@@ -334,7 +334,8 @@ async fn smoke_test_09_invalid_signature_rejection() {
         "Sec-WebSocket-Protocol",
         arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
     );
-    req.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+    req.headers_mut()
+        .insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     let (mut ws_tx, mut ws_rx) = ws.split();
 
