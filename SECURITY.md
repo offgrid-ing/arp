@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in ARP, please report it responsibly.
 
-**Email**: security@offgrid.ing
+**Email**: offgrid@outlook.fr
 
 Please include:
 
@@ -30,3 +30,6 @@ We will acknowledge receipt within 48 hours and aim to provide a fix within 7 da
 - HPKE Auth mode end-to-end encryption (RFC 9180, enabled by default)
 - Per-IP connection limiting and per-agent rate limiting
 - Dependencies audited via `cargo-deny` and `cargo-audit`
+- Pre-auth semaphore limits unauthenticated connections
+- Non-WebSocket HTTP requests receive a 301 redirect (relay only speaks WebSocket)
+- Key material zeroized on drop (`zeroize` crate)
