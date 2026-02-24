@@ -23,6 +23,12 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub listen: Option<String>,
 
+    /// Expected relay server public key (base58) for server identity pinning.
+    /// If set, the client will verify the relay's public key during the admission
+    /// handshake and refuse to connect if it does not match.
+    #[arg(long, global = true)]
+    pub relay_pubkey: Option<String>,
+
     /// Increase log verbosity (repeat for more detail).
     #[arg(short = 'v', long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -95,6 +101,10 @@ pub struct ClientConfig {
     pub relay: String,
     /// Local API listen address (`tcp://` or `unix://`).
     pub listen: String,
+    /// Optional relay server public key (base58) for identity pinning.
+    /// When set, the client verifies the relay's pubkey from the CHALLENGE frame.
+    #[serde(default)]
+    pub relay_pubkey: Option<String>,
     /// Reconnection backoff settings.
     pub reconnect: ReconnectConfig,
     /// WebSocket keepalive ping settings.
@@ -202,6 +212,7 @@ impl Default for ClientConfig {
             encryption: EncryptionConfig::default(),
             webhook: WebhookConfig::default(),
             bridge: BridgeConfig::default(),
+            relay_pubkey: None,
         }
     }
 }
@@ -267,6 +278,16 @@ impl ClientConfig {
                 return Err(format!(
                     "bridge.gateway_url must start with ws:// or wss://, got: {}",
                     self.bridge.gateway_url
+                ));
+            }
+        }
+
+        // Validate relay_pubkey if set
+        if let Some(ref pk) = self.relay_pubkey {
+            if arp_common::base58::decode_pubkey(pk).is_err() {
+                return Err(format!(
+                    "relay_pubkey must be a valid base58-encoded Ed25519 public key, got: {}",
+                    pk
                 ));
             }
         }

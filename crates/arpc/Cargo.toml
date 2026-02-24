@@ -44,3 +44,4 @@ dirs = { workspace = true }
 futures-util = { workspace = true }
 reqwest = { workspace = true }
 sha2 = { workspace = true }
+zeroize = { workspace = true }

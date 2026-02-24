@@ -92,8 +92,11 @@ download_with_checksum() {
         fi
         ok "Checksum verified"
     else
-        warn "Checksum file not available, skipping verification"
-    fi
+        if [ "$FORCE" = true ]; then
+            warn "Checksum file not available, skipping verification (--force)"
+        else
+            fail "Checksum file not available. Cannot verify download integrity.\n  → Use --force to skip verification."
+        fi
 
     rm -f "$checksum_tmp"
     DOWNLOADED="$tmp"

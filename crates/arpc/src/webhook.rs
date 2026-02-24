@@ -61,7 +61,10 @@ impl WebhookClient {
         }
 
         Some(Self {
-            http: Client::new(),
+            http: Client::builder()
+                .redirect(reqwest::redirect::Policy::limited(5))
+                .build()
+                .expect("failed to build HTTP client"),
             url: config.url.clone(),
             token: config.token.clone(),
             channel: config.channel.clone(),

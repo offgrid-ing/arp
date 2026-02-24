@@ -178,6 +178,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]

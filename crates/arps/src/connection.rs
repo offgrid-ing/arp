@@ -199,6 +199,11 @@ pub async fn handle_connection(
         move |req: &Request<()>, mut resp: tokio_tungstenite::tungstenite::http::Response<()>| {
             // Extract real client IP from Cloudflare headers.
             // CF Tunnel uses X-Forwarded-For; CF proxy uses CF-Connecting-IP.
+            //
+            // AUDIT NET-01: Self-hosters deploying without Cloudflare must configure
+            // their reverse proxy to set a trusted X-Forwarded-For or CF-Connecting-IP
+            // header. Without a trusted proxy, these headers can be spoofed by clients,
+            // undermining per-IP rate limiting and connection limits.
             let ip = req
                 .headers()
                 .get("cf-connecting-ip")

@@ -5,6 +5,7 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
+use zeroize::Zeroizing;
 #[cfg(unix)]
 const KEY_FILE_PERMS: u32 = 0o600;
 
@@ -13,6 +14,21 @@ const KEY_FILE_PERMS: u32 = 0o600;
 /// Returns an error if the key file has wrong permissions, wrong length,
 /// or if file I/O fails.
 pub fn load_or_generate_keypair(path: &Path) -> anyhow::Result<SigningKey> {
+    // AUDIT CFG-02: Warn if config directory permissions are too open
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        if let Ok(meta) = fs::metadata(parent) {
+            let dir_mode = meta.permissions().mode() & 0o777;
+            if dir_mode & 0o077 != 0 {
+                tracing::warn!(
+                    "config directory {} has loose permissions ({:o}), recommend 0700",
+                    parent.display(),
+                    dir_mode
+                );
+            }
+        }
+    }
+
     if path.exists() {
         #[cfg(unix)]
         {
@@ -27,12 +43,21 @@ pub fn load_or_generate_keypair(path: &Path) -> anyhow::Result<SigningKey> {
             }
         }
 
+        // AUDIT CFG-01: Windows does not enforce key file permissions via Unix mode bits.
+        // Users on Windows should manually restrict access to this file via ACLs.
+        #[cfg(not(unix))]
+        tracing::warn!(
+            "key file permission checks are not available on this platform; \
+             ensure {} is only readable by the current user",
+            path.display()
+        );
+
         let seed = fs::read(path)?;
         if seed.len() != 32 {
             anyhow::bail!("key file must contain exactly 32 bytes, got {}", seed.len());
         }
 
-        let mut seed_array = [0u8; 32];
+        let mut seed_array = Zeroizing::new([0u8; 32]);
         seed_array.copy_from_slice(&seed);
         let signing_key = SigningKey::from_bytes(&seed_array);
 

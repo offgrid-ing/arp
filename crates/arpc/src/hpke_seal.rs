@@ -13,6 +13,7 @@ use hpke::kem::X25519HkdfSha256;
 use hpke::{Deserializable, Kem as KemTrait, Serializable};
 use rand_core::TryRngCore;
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 type Kem = X25519HkdfSha256;
 
@@ -54,9 +55,9 @@ pub enum SealError {
 fn ed25519_to_hpke_keypair(
     sk: &ed25519_dalek::SigningKey,
 ) -> Result<(<Kem as KemTrait>::PrivateKey, <Kem as KemTrait>::PublicKey), SealError> {
-    let x_priv_bytes = sk.to_scalar_bytes();
+    let x_priv_bytes = Zeroizing::new(sk.to_scalar_bytes());
     let x_pub_bytes = sk.verifying_key().to_montgomery().to_bytes();
-    let priv_key = <Kem as KemTrait>::PrivateKey::from_bytes(&x_priv_bytes)?;
+    let priv_key = <Kem as KemTrait>::PrivateKey::from_bytes(x_priv_bytes.as_ref())?;
     let pub_key = <Kem as KemTrait>::PublicKey::from_bytes(&x_pub_bytes)?;
     Ok((priv_key, pub_key))
 }

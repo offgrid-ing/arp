@@ -95,6 +95,9 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
     if let Some(ref listen) = cli.listen {
         config.listen = listen.clone();
     }
+    if let Some(ref relay_pubkey) = cli.relay_pubkey {
+        config.relay_pubkey = Some(relay_pubkey.clone());
+    }
 
     config
         .validate()

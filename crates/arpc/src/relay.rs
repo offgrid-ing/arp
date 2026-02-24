@@ -184,6 +184,7 @@ async fn perform_relay_handshake<S>(
     ws_tx: &mut SplitSink<WebSocketStream<S>, Message>,
     ws_rx: &mut SplitStream<WebSocketStream<S>>,
     keypair: &ed25519_dalek::SigningKey,
+    expected_relay_pubkey: Option<&Pubkey>,
 ) -> Result<(), RelayError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -204,13 +205,28 @@ where
     let Frame::Challenge {
         challenge,
         difficulty,
-        ..
+        server_pubkey,
     } = frame
     else {
         return Err(RelayError::Transient(anyhow::anyhow!(
             "expected challenge frame"
         )));
     };
+
+    // AUDIT SPEC-01: Verify relay server identity if pinned
+    if let Some(expected) = expected_relay_pubkey {
+        if server_pubkey != *expected {
+            return Err(RelayError::Fatal(anyhow::anyhow!(
+                "relay server pubkey mismatch: expected {}, got {}",
+                arp_common::base58::encode(expected),
+                arp_common::base58::encode(&server_pubkey)
+            )));
+        }
+        info!(
+            pubkey = %arp_common::base58::encode(&server_pubkey),
+            "relay server identity verified"
+        );
+    }
     let timestamp = crypto::unix_now()
         .map_err(|e| RelayError::Fatal(anyhow::anyhow!("system clock error: {e}")))?;
     let signature = crypto::sign_admission(keypair, &challenge, timestamp);
@@ -292,7 +308,11 @@ async fn connect_and_run(
         .map_err(|e| RelayError::Transient(e.into()))?;
     let (mut ws_tx, mut ws_rx) = ws.split();
 
-    perform_relay_handshake(&mut ws_tx, &mut ws_rx, keypair).await?;
+    // Resolve optional relay pubkey for server identity verification
+    let relay_pubkey = config.relay_pubkey.as_ref().and_then(|pk_str| {
+        arp_common::base58::decode_pubkey(pk_str).ok()
+    });
+    perform_relay_handshake(&mut ws_tx, &mut ws_rx, keypair, relay_pubkey.as_ref()).await?;
 
     status_tx.send_replace(ConnStatus::Connected);
     info!("admitted to relay");
