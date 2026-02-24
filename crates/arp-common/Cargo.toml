@@ -1,6 +1,6 @@
 [package]
 name = "arp-common"
-version = "0.2.4"
+version = "0.2.5"
 edition.workspace = true
 repository = "https://github.com/offgrid-ing/arp"
 description = "Shared types, binary framing, and crypto helpers for the Agent Relay Protocol"
