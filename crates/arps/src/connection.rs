@@ -14,6 +14,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::{interval, timeout, Duration};
@@ -21,7 +22,6 @@ use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
-use tokio::io::AsyncWriteExt;
 
 type WsSink = SplitSink<WebSocketStream<TcpStream>, Message>;
 type WsRecv = SplitStream<WebSocketStream<TcpStream>>;
