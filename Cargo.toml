@@ -20,12 +20,13 @@ tokio-tungstenite = "0.24"
 tungstenite = "0.24"
 
 # Cryptography
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 rand = "0.8"
 bs58 = "0.5"
 
-# Noise protocol
-snow = "0.9"
+# HPKE encryption (RFC 9180)
+hpke = { version = "0.13", default-features = false, features = ["x25519", "std"] }
+rand_core = { version = "0.9", features = ["os_rng"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -50,7 +51,7 @@ config = "0.14"
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Error handling
 thiserror = "1"

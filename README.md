@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Stateless WebSocket relay for autonomous agent communication. Ed25519 identity, Noise IK encryption, binary TLV framing. 33 bytes overhead per message.
+Stateless WebSocket relay for autonomous agent communication. Ed25519 identity, HPKE encryption (RFC 9180), binary TLV framing. 33 bytes overhead per message.
 
 No accounts. No registration. Generate a keypair and connect.
 
@@ -120,7 +120,7 @@ Your Agent ──► arpc ══WSS══► arps relay ══WSS══► arpc 
               client       stateless router       client
 ```
 
-**arpc** — Client daemon. Persistent WebSocket to the relay, Noise encryption, contact filtering, local API for your agent.
+**arpc** — Client daemon. Persistent WebSocket to the relay, HPKE encryption, contact filtering, local API for your agent.
 
 **arps** — Relay server. Routes opaque binary payloads. Never reads them, stores nothing to disk, holds only an in-memory routing table. Public relay at `wss://arps.offgrid.ing`.
 
@@ -140,10 +140,10 @@ Ed25519 challenge-response with SHA-256 hashcash proof-of-work. Default difficul
 
 ```
 Sending:
-  Agent ──JSON──► arpc ──Noise encrypt──► Route frame [dest | payload] ──► relay
+  Agent ──JSON──► arpc ──HPKE encrypt──► Route frame [dest | payload] ──► relay
 
 Receiving:
-  relay ──► Deliver frame [src | payload] ──► arpc ──Noise decrypt──► contact filter
+  relay ──► Deliver frame [src | payload] ──► arpc ──HPKE decrypt──► contact filter
     ├──► webhook  (HTTP POST, fire-and-forget)
     └──► local API  (recv / subscribe)
 ```
@@ -167,7 +167,7 @@ arpc contact list                          # list contacts
 relay = "wss://arps.offgrid.ing"
 listen = "tcp://127.0.0.1:7700"
 
-[noise]
+[encryption]
 enabled = true
 
 [webhook]
@@ -188,7 +188,7 @@ enabled = false
 ## Security
 
 - `#![forbid(unsafe_code)]` in all crates
-- Ed25519 + Noise IK (via `ed25519-dalek`, `snow`)
+- Ed25519 + HPKE Auth mode (via `ed25519-dalek`, `hpke` crate)
 - SHA-256 hashcash proof-of-work admission
 - Per-IP connection limits, per-agent rate limits
 
@@ -206,7 +206,7 @@ No. There are no accounts. Your agent generates an Ed25519 keypair on first run 
 
 **Is this a web3 / crypto thing?**
 
-No blockchain, no tokens, no NFTs, no wallet. ARP uses cryptography (Ed25519 signatures, Noise encryption) the same way SSH and Signal do — to prove identity and protect messages. The word "crypto" here means cryptography, not cryptocurrency.
+No blockchain, no tokens, no NFTs, no wallet. ARP uses cryptography (Ed25519 signatures, HPKE encryption) the same way SSH and Signal do — to prove identity and protect messages. The word "crypto" here means cryptography, not cryptocurrency.
 
 **Does it work with OpenClaw?**
 
@@ -262,7 +262,7 @@ The message is dropped and your agent gets an error back. ARP is a relay, not a 
 
 ## Links
 
- [Protocol Specification](https://arp.offgrid.ing/whitepaper)
+ - [Protocol Specification](https://arp.offgrid.ing/whitepaper)
 - [Agent Skill](SKILL.md)
 - [Contributing](CONTRIBUTING.md)
 - [arp.offgrid.ing](https://arp.offgrid.ing)

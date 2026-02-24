@@ -57,6 +57,18 @@ fn verify_checksum(data: &[u8], expected_hex: &str) -> bool {
     actual == expected_hex
 }
 
+/// Placeholder for release signature verification.
+/// TODO(C1): Implement Ed25519 signature verification of release artifacts.
+/// This requires:
+/// 1. A release signing keypair (generated offline, public key embedded here)
+/// 2. CI pipeline to sign release artifacts
+/// 3. Verification of detached .sig files before applying updates
+#[allow(dead_code)]
+fn verify_release_signature(_data: &[u8], _signature: &[u8], _public_key: &[u8; 32]) -> bool {
+    // Placeholder — always returns false until signing infrastructure is in place
+    tracing::warn!("release signature verification not yet implemented (C1)");
+    false
+}
 /// Check if an update is available. Prints status and returns.
 ///
 /// # Errors
@@ -148,7 +160,15 @@ pub async fn perform_update() -> Result<(), anyhow::Error> {
     let parent = current_exe
         .parent()
         .ok_or_else(|| anyhow::anyhow!("cannot determine parent directory of current binary"))?;
-    let tmp_path = parent.join(format!(".arpc-update-{}", std::process::id()));
+    // Use a unique temp file name to avoid race conditions with multiple processes
+    let tmp_path = parent.join(format!(
+        ".arpc-update-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
 
     // Write temp file
     {

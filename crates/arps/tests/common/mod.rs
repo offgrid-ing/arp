@@ -28,7 +28,6 @@ pub fn test_config(listen: SocketAddr) -> ServerConfig {
         pow_difficulty: 0,
     }
 }
-
 pub fn test_config_with_params(
     listen: SocketAddr,
     max_conns: usize,
@@ -49,7 +48,6 @@ pub fn test_config_with_params(
         pow_difficulty: 0,
     }
 }
-
 pub struct TestClient {
     pub ws_tx: futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<
@@ -74,6 +72,10 @@ impl TestClient {
             "Sec-WebSocket-Protocol",
             arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
         );
+        req.headers_mut().insert(
+            "CF-Connecting-IP",
+            "127.0.0.1".parse().unwrap(),
+        );
         let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
         let (mut ws_tx, mut ws_rx) = ws.split();
 
@@ -86,7 +88,7 @@ impl TestClient {
             panic!("expected challenge frame");
         };
 
-        let timestamp = crypto::unix_now();
+        let timestamp = crypto::unix_now().expect("clock error");
         let signature = crypto::sign_admission(keypair, &challenge, timestamp);
         let pubkey: Pubkey = keypair.verifying_key().to_bytes();
         let response = Frame::response(&pubkey, timestamp, &signature);
@@ -163,12 +165,16 @@ impl TestClient {
 
 fn make_state(config: ServerConfig) -> Arc<ServerState> {
     let server_keypair = SigningKey::generate(&mut OsRng);
-    let router = Router::new();
+    let router = Router::new(config.max_conns);
     Arc::new(ServerState {
         router,
         server_keypair,
         config,
         ip_connections: dashmap::DashMap::new(),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+        seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(10_000).unwrap(),
+        )),
         pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
     })
 }
@@ -207,4 +213,89 @@ pub async fn start_server_with_max_payload(max_payload: usize) -> (SocketAddr, A
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     (addr, state)
+}
+
+
+pub async fn start_server_with_pow(pow_difficulty: u8) -> (SocketAddr, Arc<ServerState>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mut config = test_config(addr);
+    config.pow_difficulty = pow_difficulty;
+    let state = make_state(config);
+
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = arps::run(listener, state_clone).await {
+            eprintln!("server error in test: {e}");
+        }
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    (addr, state)
+}
+
+impl TestClient {
+    /// Connect to a server with PoW enabled, solving the challenge.
+    pub async fn connect_with_pow(addr: &SocketAddr, keypair: &SigningKey) -> Self {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let url = format!("ws://{addr}");
+        let mut req = url.into_client_request().unwrap();
+        req.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
+        );
+        req.headers_mut().insert(
+            "CF-Connecting-IP",
+            "127.0.0.1".parse().unwrap(),
+        );
+        let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
+        let (mut ws_tx, mut ws_rx) = ws.split();
+
+        let challenge_msg = ws_rx.next().await.unwrap().unwrap();
+        let Message::Binary(challenge_data) = challenge_msg else {
+            panic!("expected binary challenge frame");
+        };
+        let frame = Frame::parse(&challenge_data).unwrap();
+        let Frame::Challenge {
+            challenge,
+            difficulty,
+            ..
+        } = frame
+        else {
+            panic!("expected challenge frame");
+        };
+
+        let timestamp = crypto::unix_now().expect("clock error");
+        let signature = crypto::sign_admission(keypair, &challenge, timestamp);
+        let pubkey: Pubkey = keypair.verifying_key().to_bytes();
+
+        let response = if difficulty > 0 {
+            let nonce = crypto::pow_solve(&challenge, &pubkey, timestamp, difficulty)
+                .expect("PoW solve failed");
+            Frame::response_with_pow(&pubkey, timestamp, &signature, nonce)
+        } else {
+            Frame::response(&pubkey, timestamp, &signature)
+        };
+        ws_tx
+            .send(Message::Binary(response.serialize()))
+            .await
+            .unwrap();
+
+        let admit_msg = ws_rx.next().await.unwrap().unwrap();
+        let Message::Binary(admit_data) = admit_msg else {
+            panic!("expected binary admission frame");
+        };
+        let admit = Frame::parse(&admit_data).unwrap();
+        assert!(
+            matches!(admit, Frame::Admitted),
+            "expected Admitted, got {admit:?}"
+        );
+
+        Self {
+            ws_tx,
+            ws_rx,
+            pubkey,
+        }
+    }
 }

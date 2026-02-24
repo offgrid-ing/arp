@@ -179,7 +179,13 @@ impl ContactStore {
     /// List all contacts sorted by name.
     #[must_use]
     pub fn list(&self) -> Vec<Contact> {
-        let inner = self.inner.read().expect("lock poisoned");
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("contacts lock poisoned in list(), using recovered data");
+                poisoned.into_inner()
+            }
+        };
         let mut contacts: Vec<Contact> = inner.by_pubkey.values().cloned().collect();
         contacts.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         contacts
@@ -188,7 +194,13 @@ impl ContactStore {
     /// Look up a contact by display name (case-insensitive).
     #[must_use]
     pub fn lookup_by_name(&self, name: &str) -> Option<Contact> {
-        let inner = self.inner.read().expect("lock poisoned");
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("contacts lock poisoned in lookup_by_name()");
+                poisoned.into_inner()
+            }
+        };
         let pk = inner.name_to_pubkey.get(&name.to_lowercase())?;
         inner.by_pubkey.get(pk).cloned()
     }
@@ -197,7 +209,13 @@ impl ContactStore {
     #[must_use]
     pub fn lookup_by_pubkey(&self, pubkey_b58: &str) -> Option<Contact> {
         let pk = base58::decode_pubkey(pubkey_b58).ok()?;
-        let inner = self.inner.read().expect("lock poisoned");
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("contacts lock poisoned in lookup_by_pubkey()");
+                poisoned.into_inner()
+            }
+        };
         inner.by_pubkey.get(&pk).cloned()
     }
 
@@ -207,7 +225,13 @@ impl ContactStore {
     /// only messages from known contacts are delivered.
     #[must_use]
     pub fn should_deliver(&self, from: &Pubkey) -> bool {
-        let inner = self.inner.read().expect("lock poisoned");
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("contacts lock poisoned in should_deliver(), failing closed");
+                poisoned.into_inner()
+            }
+        };
         match inner.filter_mode {
             FilterMode::AcceptAll => true,
             FilterMode::ContactsOnly => inner.by_pubkey.contains_key(from),
@@ -217,13 +241,27 @@ impl ContactStore {
     /// Get the current filter mode.
     #[must_use]
     pub fn filter_mode(&self) -> FilterMode {
-        let inner = self.inner.read().expect("lock poisoned");
+        let inner = match self.inner.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!(
+                    "contacts lock poisoned in filter_mode(), defaulting to ContactsOnly"
+                );
+                poisoned.into_inner()
+            }
+        };
         inner.filter_mode
     }
 
     /// Set the filter mode and persist to disk.
     pub fn set_filter_mode(&self, mode: FilterMode) {
-        let mut inner = self.inner.write().expect("lock poisoned");
+        let mut inner = match self.inner.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("contacts lock poisoned in set_filter_mode()");
+                poisoned.into_inner()
+            }
+        };
         inner.filter_mode = mode;
         if let Err(e) = self.save_locked(&inner) {
             tracing::warn!("failed to persist filter_mode change: {}", e);
@@ -242,7 +280,10 @@ impl ContactStore {
 
         let contents =
             toml::to_string_pretty(&file).map_err(|e| format!("serialize error: {e}"))?;
-        std::fs::write(&self.path, contents).map_err(|e| format!("write error: {e}"))?;
+        // Atomic save: write to temp file, then rename
+        let tmp_path = self.path.with_extension("toml.tmp");
+        std::fs::write(&tmp_path, &contents).map_err(|e| format!("write error: {e}"))?;
+        std::fs::rename(&tmp_path, &self.path).map_err(|e| format!("rename error: {e}"))?;
 
         Ok(())
     }

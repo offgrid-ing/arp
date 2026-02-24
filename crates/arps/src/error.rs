@@ -24,6 +24,9 @@ pub enum ArpsError {
     /// The connection was closed by the remote peer.
     #[error("connection closed")]
     ConnectionClosed,
+    /// System clock error (before Unix epoch).
+    #[error("system clock error")]
+    ClockError,
     /// Binary frame encoding or decoding error.
     #[error("frame error: {0}")]
     Frame(#[from] arp_common::frame::FrameError),

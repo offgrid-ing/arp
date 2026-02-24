@@ -11,6 +11,7 @@ use futures_util::{SinkExt, StreamExt};
 use rand::rngs::OsRng;
 use rand::Rng;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::TcpStream;
@@ -24,116 +25,6 @@ use tokio_tungstenite::WebSocketStream;
 type WsSink = SplitSink<WebSocketStream<TcpStream>, Message>;
 type WsRecv = SplitStream<WebSocketStream<TcpStream>>;
 
-/// Cloudflare IP ranges (IPv4 and IPv6)
-/// Source: https://www.cloudflare.com/ips/
-const CLOUDFLARE_IP_RANGES: &[&str] = &[
-    // IPv4 ranges
-    "173.245.48.0/20",
-    "103.21.244.0/22",
-    "103.22.200.0/22",
-    "103.31.4.0/22",
-    "141.101.64.0/18",
-    "108.162.192.0/18",
-    "190.93.240.0/20",
-    "188.114.96.0/20",
-    "197.234.240.0/22",
-    "198.41.128.0/17",
-    "162.158.0.0/15",
-    "104.16.0.0/13",
-    "104.24.0.0/14",
-    "172.64.0.0/13",
-    "131.0.72.0/22",
-    // IPv6 ranges
-    "2400:cb00::/32",
-    "2606:4700::/32",
-    "2803:f800::/32",
-    "2405:b500::/32",
-    "2405:8100::/32",
-    "2a06:98c0::/29",
-    "2c0f:f248::/32",
-];
-
-/// Check if an IP address is within a CIDR range
-fn ip_in_range(ip: IpAddr, range: &str) -> bool {
-    let parts: Vec<&str> = range.split('/').collect();
-    if parts.len() != 2 {
-        return false;
-    }
-    let range_ip: IpAddr = match parts[0].parse() {
-        Ok(ip) => ip,
-        Err(_) => return false,
-    };
-    let prefix: u8 = match parts[1].parse() {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-
-    match (ip, range_ip) {
-        (IpAddr::V4(ip), IpAddr::V4(range_ip)) => {
-            // Validate prefix for IPv4 (0-32)
-            if prefix > 32 {
-                return false;
-            }
-            let ip_bits = u32::from(ip);
-            let range_bits = u32::from(range_ip);
-            // Handle prefix == 0 specially to avoid shift overflow
-            let mask = if prefix == 0 {
-                0
-            } else {
-                !((1u32 << (32 - prefix)) - 1)
-            };
-            (ip_bits & mask) == (range_bits & mask)
-        }
-        (IpAddr::V6(ip), IpAddr::V6(range_ip)) => {
-            // Validate prefix for IPv6 (0-128)
-            if prefix > 128 {
-                return false;
-            }
-            let ip_bits = u128::from(ip);
-            let range_bits = u128::from(range_ip);
-            // Handle prefix == 0 specially to avoid shift overflow
-            let mask = if prefix == 0 {
-                0
-            } else {
-                !((1u128 << (128 - prefix)) - 1)
-            };
-            (ip_bits & mask) == (range_bits & mask)
-        }
-        _ => false,
-    }
-}
-
-/// Check if an IP address belongs to Cloudflare
-fn is_cloudflare_ip(ip: IpAddr) -> bool {
-    CLOUDFLARE_IP_RANGES
-        .iter()
-        .any(|range| ip_in_range(ip, range))
-}
-
-/// Extract client IP from request headers
-/// Only trusts headers if the connection comes from Cloudflare
-fn extract_client_ip(request: &Request<()>, peer_addr: &SocketAddr) -> IpAddr {
-    // Only trust headers from Cloudflare IPs
-    let is_cloudflare = is_cloudflare_ip(peer_addr.ip());
-
-    if is_cloudflare {
-        // Cloudflare headers (most reliable)
-        if let Some(v) = request
-            .headers()
-            .get("cf-connecting-ip")
-            .and_then(|v| v.to_str().ok())
-        {
-            if let Ok(ip) = v.parse::<IpAddr>() {
-                return ip;
-            }
-        }
-    }
-
-    // For non-Cloudflare connections, only use X-Forwarded-For if we can validate it
-    // In production with Cloudflare orange cloud, we should never hit this path
-    // because all traffic comes through Cloudflare
-    peer_addr.ip()
-}
 
 struct IpGuard {
     state: Arc<ServerState>,
@@ -192,11 +83,17 @@ async fn perform_admission(
         }
         Ok(Err(e)) => {
             counters::admissions_total("rejected");
-            let rejected_frame = Frame::rejected(0x01);
+            let reason = match &e {
+                ArpsError::TimestampExpired => arp_common::types::rejection_reason::TIMESTAMP_EXPIRED,
+                ArpsError::InvalidPoW => arp_common::types::rejection_reason::INVALID_POW,
+                ArpsError::SignatureError(_) => arp_common::types::rejection_reason::BAD_SIG,
+                _ => arp_common::types::rejection_reason::BAD_SIG,
+            };
+            let rejected_frame = Frame::rejected(reason);
             let _ = ws_tx
                 .send(Message::Binary(rejected_frame.serialize()))
                 .await;
-            tracing::debug!("sent rejection frame to client");
+            tracing::debug!(reason = reason, "sent rejection frame to client");
             Err(e)
         }
         Err(_) => {
@@ -299,13 +196,21 @@ pub async fn handle_connection(
     let ws_stream = tokio_tungstenite::accept_hdr_async_with_config(
         stream,
         move |req: &Request<()>, mut resp: tokio_tungstenite::tungstenite::http::Response<()>| {
-            let ip = extract_client_ip(req, &peer_addr);
-            let _ = ip_cell.set(ip);
+            // Extract real client IP from CF-Connecting-IP header.
+            // Header is set by Cloudflare Tunnel on every request.
+            if let Some(ip) = req
+                .headers()
+                .get("cf-connecting-ip")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<IpAddr>().ok())
+            {
+                let _ = ip_cell.set(ip);
+            }
             if let Some(protocols) = req.headers().get("sec-websocket-protocol") {
                 if let Ok(proto_str) = protocols.to_str() {
                     for p in proto_str.split(',').map(str::trim) {
-                        let _ = proto_cell.set(p.to_string());
                         if p == arp_common::types::PROTOCOL_VERSION {
+                            let _ = proto_cell.set(p.to_string());
                             resp.headers_mut().insert(
                                 "sec-websocket-protocol",
                                 tokio_tungstenite::tungstenite::http::HeaderValue::from_static(
@@ -313,6 +218,12 @@ pub async fn handle_connection(
                                 ),
                             );
                             break;
+                        }
+                    }
+                    // If no match found, store the first offered protocol for error reporting
+                    if proto_cell.get().is_none() {
+                        if let Some(first) = proto_str.split(',').next().map(str::trim) {
+                            let _ = proto_cell.set(first.to_string());
                         }
                     }
                 }
@@ -324,7 +235,14 @@ pub async fn handle_connection(
     .await
     .map_err(ArpsError::WebSocket)?;
 
-    let client_ip = client_ip.get().copied().unwrap_or_else(|| peer_addr.ip());
+    let client_ip = match client_ip.get().copied() {
+        Some(ip) => ip,
+        None => {
+            // No CF-Connecting-IP header — connection bypassed Cloudflare Tunnel.
+            tracing::warn!("rejecting direct connection from {} (no CF-Connecting-IP)", peer_addr);
+            return Err(ArpsError::ConnectionClosed);
+        }
+    };
 
     // Atomic check-and-increment for per-IP connection limiting
     // Uses DashMap entry API to prevent race conditions between check and increment
@@ -386,8 +304,8 @@ pub async fn handle_connection(
         drop(old_handle);
     }
 
+    state.active_connections.fetch_add(1, Ordering::Relaxed);
     gauges::inc_connections_active();
-
     let result = run_message_loop(
         &mut ws_tx,
         &mut ws_rx,
@@ -396,8 +314,8 @@ pub async fn handle_connection(
         &conn_handle,
     )
     .await;
-
     state.router.remove_if(&pubkey, admitted_at);
+    state.active_connections.fetch_sub(1, Ordering::Relaxed);
     gauges::dec_connections_active();
 
     result
@@ -499,44 +417,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    use tokio_tungstenite::tungstenite::http::Request;
-
-    fn peer_addr() -> SocketAddr {
-        // Use a Cloudflare IP so headers are trusted in tests
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(173, 245, 48, 1)), 12345)
-    }
-
-    #[test]
-    fn extract_ip_cf_connecting_ip() {
-        let req = Request::builder()
-            .header("cf-connecting-ip", "203.0.113.50")
-            .body(())
-            .unwrap();
-        assert_eq!(
-            extract_client_ip(&req, &peer_addr()),
-            "203.0.113.50".parse::<IpAddr>().unwrap()
-        );
-    }
-
-    #[test]
-    fn extract_ip_priority_cf_over_others() {
-        let req = Request::builder()
-            .header("cf-connecting-ip", "203.0.113.50")
-            .header("x-forwarded-for", "198.51.100.10")
-            .body(())
-            .unwrap();
-        assert_eq!(
-            extract_client_ip(&req, &peer_addr()),
-            "203.0.113.50".parse::<IpAddr>().unwrap()
-        );
-    }
-
-    #[test]
-    fn extract_ip_fallback_to_peer() {
-        let req = Request::builder().body(()).unwrap();
-        assert_eq!(extract_client_ip(&req, &peer_addr()), peer_addr().ip());
-    }
+    use std::net::IpAddr;
 
     #[test]
     fn ip_guard_decrements_on_drop() {
@@ -558,9 +439,13 @@ mod tests {
         };
         let state = Arc::new(ServerState {
             config,
-            router: Router::new(),
+            router: Router::new(100_000),
             server_keypair: ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
             ip_connections: dashmap::DashMap::new(),
+            active_connections: std::sync::atomic::AtomicUsize::new(0),
+            seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(10_000).unwrap(),
+            )),
             pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
         });
 
@@ -597,9 +482,13 @@ mod tests {
         };
         let state = Arc::new(ServerState {
             config,
-            router: Router::new(),
+            router: Router::new(100_000),
             server_keypair: ed25519_dalek::SigningKey::from_bytes(&[1u8; 32]),
             ip_connections: dashmap::DashMap::new(),
+            active_connections: std::sync::atomic::AtomicUsize::new(0),
+            seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(10_000).unwrap(),
+            )),
             pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
         });
 

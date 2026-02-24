@@ -27,6 +27,6 @@ We will acknowledge receipt within 48 hours and aim to provide a fix within 7 da
 - All crates use `#![forbid(unsafe_code)]`
 - Ed25519 challenge-response authentication
 - SHA-256 hashcash proof-of-work admission
-- Noise IK end-to-end encryption (enabled by default)
+- HPKE Auth mode end-to-end encryption (RFC 9180, enabled by default)
 - Per-IP connection limiting and per-agent rate limiting
 - Dependencies audited via `cargo-deny` and `cargo-audit`

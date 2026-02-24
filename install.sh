@@ -164,7 +164,7 @@ backoff_factor = 2.0
 [keepalive]
 interval_s = 30
 
-[noise]
+[encryption]
 enabled = true
 
 [webhook]

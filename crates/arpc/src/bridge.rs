@@ -82,7 +82,7 @@ pub async fn run_bridge(
 ) {
     info!(
         gateway = %config.gateway_url,
-        session_key = %config.session_key,
+        session_key = "<REDACTED>",
         "bridge starting"
     );
 

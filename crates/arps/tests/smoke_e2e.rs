@@ -108,13 +108,16 @@ async fn smoke_test_04_rate_limiting() {
 
     let server_keypair = SigningKey::generate(&mut OsRng);
     let config = test_config_with_params(addr, 1000, 5, 5);
-    let router = Router::new();
-
+    let router = Router::new(config.max_conns);
     let state = Arc::new(ServerState {
         router,
         server_keypair,
         config,
         ip_connections: dashmap::DashMap::new(),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+        seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(10_000).unwrap(),
+        )),
         pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
     });
 
@@ -331,6 +334,7 @@ async fn smoke_test_09_invalid_signature_rejection() {
         "Sec-WebSocket-Protocol",
         arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
     );
+    req.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     let (mut ws_tx, mut ws_rx) = ws.split();
 
@@ -343,7 +347,7 @@ async fn smoke_test_09_invalid_signature_rejection() {
         panic!("expected challenge frame");
     };
 
-    let timestamp = crypto::unix_now();
+    let timestamp = crypto::unix_now().expect("clock error");
     let invalid_signature = [0xFFu8; 64];
     let pubkey: Pubkey = keypair.verifying_key().to_bytes();
     let response = Frame::response(&pubkey, timestamp, &invalid_signature);
@@ -478,10 +482,10 @@ async fn smoke_test_13_connection_cleanup() {
     println!("✓ Test 13: Connection cleanup works correctly");
 }
 
-/// Test Suite 14: Noise Handshake Simulation (binary payload integrity)
+/// Test Suite 14: HPKE Encryption Simulation (binary payload integrity)
 ///
 /// Verifies the relay correctly forwards opaque binary payloads that simulate
-/// the Noise IK handshake flow between two agents. The relay is payload-agnostic;
+/// the HPKE Auth mode encryption flow between two agents. The relay is payload-agnostic;
 /// this test ensures multi-step, variable-size binary exchanges arrive intact.
 #[tokio::test]
 async fn smoke_test_14_noise_handshake_simulation() {
@@ -493,9 +497,9 @@ async fn smoke_test_14_noise_handshake_simulation() {
     let mut alice = TestClient::connect(&addr, &keypair_alice).await;
     let mut bob = TestClient::connect(&addr, &keypair_bob).await;
 
-    // Step 1: Alice sends a simulated Noise IK handshake initiation (prefix 0x01)
-    // Real Noise IK -> e, es, s, ss  (~96 bytes)
-    let mut hs_init = vec![0x01u8]; // noise handshake init prefix
+    // Step 1: Alice sends a simulated HPKE Auth mode encrypted message (prefix 0x04)
+    // HPKE Auth mode: encapped_key (32 bytes) + ciphertext + tag (16 bytes)
+    let mut hs_init = vec![0x04u8]; // HPKE auth encrypted prefix
     hs_init.extend_from_slice(&[0xAA; 95]); // 96 bytes total
     alice.send_message(&bob.pubkey, &hs_init).await;
 
@@ -504,31 +508,31 @@ async fn smoke_test_14_noise_handshake_simulation() {
         Frame::Deliver { src, payload } => {
             assert_eq!(src, alice.pubkey, "HS init: source mismatch");
             assert_eq!(payload.len(), 96, "HS init: length mismatch");
-            assert_eq!(payload[0], 0x01, "HS init: prefix mismatch");
+            assert_eq!(payload[0], 0x04, "HPKE init: prefix mismatch");
             assert_eq!(payload, hs_init, "HS init: payload corrupted");
         }
         other => panic!("Expected Deliver for HS init, got {:?}", other),
     }
 
-    // Step 2: Bob sends back a simulated handshake response (prefix 0x02)
-    // Real Noise IK -> e, ee, se (~48 bytes)
-    let mut hs_resp = vec![0x02u8]; // noise handshake response prefix
-    hs_resp.extend_from_slice(&[0xBB; 47]); // 48 bytes total
-    bob.send_message(&alice.pubkey, &hs_resp).await;
+    // Step 2: Bob sends back a simulated HPKE response (prefix 0x04)
+    // HPKE Auth mode response uses the same prefix (stateless per-message)
+    let mut hpke_resp = vec![0x04u8]; // HPKE auth encrypted prefix
+    hpke_resp.extend_from_slice(&[0xBB; 47]); // 48 bytes total
+    bob.send_message(&alice.pubkey, &hpke_resp).await;
 
     let frame = alice.recv_deliver().await;
     match frame {
         Frame::Deliver { src, payload } => {
-            assert_eq!(src, bob.pubkey, "HS resp: source mismatch");
-            assert_eq!(payload.len(), 48, "HS resp: length mismatch");
-            assert_eq!(payload[0], 0x02, "HS resp: prefix mismatch");
-            assert_eq!(payload, hs_resp, "HS resp: payload corrupted");
+            assert_eq!(src, bob.pubkey, "HPKE resp: source mismatch");
+            assert_eq!(payload.len(), 48, "HPKE resp: length mismatch");
+            assert_eq!(payload[0], 0x04, "HPKE resp: prefix mismatch");
+            assert_eq!(payload, hpke_resp, "HPKE resp: payload corrupted");
         }
-        other => panic!("Expected Deliver for HS resp, got {:?}", other),
+        other => panic!("Expected Deliver for HPKE resp, got {:?}", other),
     }
 
-    // Step 3: Alice sends a simulated encrypted transport message (prefix 0x03)
-    let mut enc_msg_a = vec![0x03u8]; // encrypted transport prefix
+    // Step 3: Alice sends a simulated encrypted transport message (prefix 0x04)
+    let mut enc_msg_a = vec![0x04u8]; // HPKE auth encrypted prefix
     enc_msg_a.extend_from_slice(&[0xCC; 127]); // 128 bytes total
     alice.send_message(&bob.pubkey, &enc_msg_a).await;
 
@@ -537,14 +541,14 @@ async fn smoke_test_14_noise_handshake_simulation() {
         Frame::Deliver { src, payload } => {
             assert_eq!(src, alice.pubkey, "Enc A->B: source mismatch");
             assert_eq!(payload.len(), 128, "Enc A->B: length mismatch");
-            assert_eq!(payload[0], 0x03, "Enc A->B: prefix mismatch");
+            assert_eq!(payload[0], 0x04, "Enc A->B: prefix mismatch");
             assert_eq!(payload, enc_msg_a, "Enc A->B: payload corrupted");
         }
         other => panic!("Expected Deliver for encrypted msg A->B, got {:?}", other),
     }
 
-    // Step 4: Bob sends an encrypted reply back (prefix 0x03)
-    let mut enc_msg_b = vec![0x03u8];
+    // Step 4: Bob sends an encrypted reply back (prefix 0x04)
+    let mut enc_msg_b = vec![0x04u8];
     enc_msg_b.extend_from_slice(&[0xDD; 255]); // 256 bytes total
     bob.send_message(&alice.pubkey, &enc_msg_b).await;
 
@@ -553,7 +557,7 @@ async fn smoke_test_14_noise_handshake_simulation() {
         Frame::Deliver { src, payload } => {
             assert_eq!(src, bob.pubkey, "Enc B->A: source mismatch");
             assert_eq!(payload.len(), 256, "Enc B->A: length mismatch");
-            assert_eq!(payload[0], 0x03, "Enc B->A: prefix mismatch");
+            assert_eq!(payload[0], 0x04, "Enc B->A: prefix mismatch");
             assert_eq!(payload, enc_msg_b, "Enc B->A: payload corrupted");
         }
         other => panic!("Expected Deliver for encrypted msg B->A, got {:?}", other),
@@ -561,7 +565,7 @@ async fn smoke_test_14_noise_handshake_simulation() {
 
     // Step 5: Rapid encrypted exchange — verify ordering and integrity
     for i in 0u8..10 {
-        let mut msg = vec![0x03, i];
+        let mut msg = vec![0x04, i];
         msg.extend_from_slice(&[i; 64]);
         alice.send_message(&bob.pubkey, &msg).await;
     }
@@ -571,7 +575,7 @@ async fn smoke_test_14_noise_handshake_simulation() {
         match frame {
             Frame::Deliver { src, payload } => {
                 assert_eq!(src, alice.pubkey, "Rapid msg {i}: source mismatch");
-                assert_eq!(payload[0], 0x03, "Rapid msg {i}: prefix mismatch");
+                assert_eq!(payload[0], 0x04, "Rapid msg {i}: prefix mismatch");
                 assert_eq!(payload[1], i, "Rapid msg {i}: sequence mismatch");
                 assert_eq!(payload.len(), 66, "Rapid msg {i}: length mismatch");
             }
@@ -579,5 +583,5 @@ async fn smoke_test_14_noise_handshake_simulation() {
         }
     }
 
-    println!("\u{2713} Test 14: Noise handshake simulation — binary payload integrity verified");
+    println!("\u{2713} Test 14: HPKE encryption simulation — binary payload integrity verified");
 }

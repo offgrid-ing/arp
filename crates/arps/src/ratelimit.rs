@@ -55,7 +55,7 @@ impl RateLimiter {
     }
 
     /// Returns the total bytes in the current window.
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn byte_count(&self) -> u64 {
         self.current_bytes
     }
@@ -98,8 +98,8 @@ impl RateLimiter {
     }
 
     /// Returns statistics about the current window state.
+    #[cfg(test)]
     #[must_use]
-    #[allow(dead_code)]
     pub fn stats(&self) -> RateLimiterStats {
         RateLimiterStats {
             message_count: self.msg_count(),
@@ -116,8 +116,8 @@ impl Default for RateLimiter {
 }
 
 /// Statistics about the current rate limiter state.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct RateLimiterStats {
     /// Number of messages in the current window.
     pub message_count: u32,

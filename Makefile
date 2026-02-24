@@ -33,9 +33,25 @@ release: test clippy server client
 	@echo "Note: macOS binaries require building on macOS or via CI with macOS SDK."
 
 deploy-server: server
+	@echo 'Backing up current binary...'
+	-sudo cp /opt/arp/arps /opt/arp/arps.bak
 	sudo systemctl stop arps
 	sudo cp target/x86_64-unknown-linux-gnu/release/arps /opt/arp/arps
-	sudo systemctl start arps
+	if sudo systemctl start arps && sleep 2 && systemctl is-active --quiet arps; then \
+		echo 'Deploy successful'; \
+	else \
+		echo 'Deploy FAILED — rolling back...'; \
+		sudo systemctl stop arps || true; \
+		if [ -f /opt/arp/arps.bak ]; then \
+			sudo cp /opt/arp/arps.bak /opt/arp/arps; \
+			sudo systemctl start arps; \
+			echo 'Rolled back to previous version'; \
+		else \
+			echo 'ERROR: No backup available for rollback!'; \
+			exit 1; \
+		fi; \
+		exit 1; \
+	fi
 
 clean:
 	cargo clean

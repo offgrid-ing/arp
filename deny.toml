@@ -6,4 +6,11 @@ ignore = []
 
 [bans]
 multiple-versions = "warn"
-deny = []
+deny = [
+    { name = "openssl" },
+    { name = "openssl-sys" },
+]
+
+[sources]
+allow-git = false
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

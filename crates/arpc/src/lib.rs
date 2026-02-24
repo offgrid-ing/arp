@@ -10,13 +10,13 @@ pub mod bridge;
 pub mod config;
 /// Contact management and inbound message filtering.
 pub mod contacts;
+/// HPKE Auth mode end-to-end encryption (RFC 9180).
+#[cfg(feature = "encryption")]
+pub mod hpke_seal;
 /// Ed25519 keypair generation and loading.
 pub mod keypair;
 /// Line-delimited JSON API over TCP/Unix sockets.
 pub mod local_api;
-/// Noise IK end-to-end encryption.
-#[cfg(feature = "noise")]
-pub mod noise;
 /// WebSocket relay connection manager.
 pub mod relay;
 /// Self-update from GitHub Releases.

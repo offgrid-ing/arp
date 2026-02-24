@@ -5,12 +5,13 @@ use arp_common::base58;
 use arps::config::{Args, ServerConfig};
 use arps::metrics::{start_metrics_server, HealthState};
 use arps::router::Router;
-use arps::run;
+use arps::server::run_with_shutdown;
 use arps::server::ServerState;
 use clap::Parser;
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
@@ -41,13 +42,16 @@ async fn main() -> Result<()> {
     let pubkey = server_keypair.verifying_key().to_bytes();
     info!("server public key: {}", base58::encode(&pubkey));
 
-    let router = Router::new();
-
+    let router = Router::new(config.max_conns);
     let state = Arc::new(ServerState {
         router,
         server_keypair,
         config: config.clone(),
         ip_connections: dashmap::DashMap::new(),
+        active_connections: AtomicUsize::new(0),
+        seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(10_000).unwrap(),
+        )),
         pre_auth_semaphore: Semaphore::new(MAX_PRE_AUTH_CONNECTIONS),
     });
 
@@ -65,15 +69,18 @@ async fn main() -> Result<()> {
         }
     });
 
-    tokio::select! {
-        result = run(listener, state) => {
-            if let Err(e) = result {
-                tracing::error!("server error: {}", e);
-            }
-        }
-        _ = tokio::signal::ctrl_c() => {
-            info!("received shutdown signal");
-        }
+    let (shutdown_tx, _) = tokio::sync::watch::channel(());
+
+    // Spawn a task that sends shutdown on ctrl_c
+    let shutdown_tx_clone = shutdown_tx.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("received shutdown signal");
+        drop(shutdown_tx_clone);
+    });
+
+    if let Err(e) = run_with_shutdown(listener, state, shutdown_tx).await {
+        tracing::error!("server error: {}", e);
     }
 
     Ok(())

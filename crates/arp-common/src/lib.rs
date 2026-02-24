@@ -14,4 +14,5 @@ pub mod crypto;
 pub mod frame;
 pub mod types;
 
+pub use crypto::{ClockError, PowError};
 pub use types::Pubkey;

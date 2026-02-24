@@ -37,7 +37,7 @@ ARP is a stateless WebSocket relay protocol for autonomous agent communication. 
 │       │   ├── main.rs     # CLI entry point
 │       │   ├── config.rs   # TOML config, Cli args
 │       │   ├── relay.rs    # WebSocket connection manager
-│       │   ├── noise.rs    # Noise IK E2E encryption
+│       │   ├── hpke_seal.rs # HPKE Auth mode E2E encryption
 │       │   ├── local_api.rs # TCP/Unix socket JSON API
 │       │   ├── contacts.rs # Contact management
 │       │   ├── keypair.rs  # Ed25519 key generation
@@ -238,25 +238,21 @@ Persistent WebSocket client with local JSON API.
 4. Send Response frame
 5. Wait for Admitted/Rejected
 
-### Noise IK Encryption
+### HPKE Encryption
 
-`noise.rs` — `NoiseSessionManager`:
+`hpke_seal.rs` — `HpkeAuthEncryption`:
 
-Pattern: `Noise_IK_25519_ChaChaPoly_BLAKE2s`
+Algorithm: X25519-HKDF-SHA256 / ChaCha20Poly1305 (RFC 9180 Auth mode)
 
 Key conversion: Ed25519 → X25519 via birational map (uses `to_scalar_bytes()`, `to_montgomery()`)
 
-Session states:
-- `sessions: LruCache<Pubkey, TransportState>` — 256-entry LRU cache
-- `pending_handshakes: HashMap<Pubkey, (HandshakeState, Instant)>` — initiated handshakes
-
+Stateless per-message encryption (no sessions, no handshake state):
+ Each message encrypted independently with fresh ephemeral key
+ Authenticated sender identity via Auth mode (sender's static X25519 key)
+ No LRU cache, no session table, no eviction logic
 Message prefixes:
-- `0x00` — plaintext
-- `0x01` — handshake init (IK msg1: → e, es, s, ss)
-- `0x02` — handshake response (IK msg2: → e, ee, se)
-- `0x03` — encrypted transport data
-
-Concurrent handshake collision: lower X25519 public key wins as initiator.
+ `0x00` — plaintext
+ `0x04` — HPKE Auth encrypted (X25519 ephemeral | encrypted payload | auth tag)
 
 ### Local JSON API
 
@@ -308,8 +304,8 @@ backoff_factor = 2.0                  # Exponential multiplier
 [keepalive]
 interval_s = 30                       # WebSocket ping interval
 
-[noise]
-enabled = true                        # Enable Noise IK encryption
+[encryption]
+enabled = true                        # Enable HPKE Auth encryption
 
 [webhook]
 enabled = false                       # HTTP push for inbound messages
@@ -367,7 +363,7 @@ backoff_factor = 2.0
 [keepalive]
 interval_s = 30
 
-[noise]
+[encryption]
 enabled = true
 
 [webhook]
@@ -423,15 +419,15 @@ Options:
 
 ## Data Flow Diagrams
 
-### Send Path (with Noise)
+### Send Path (with HPKE Encryption)
 
 ```
-┌─────────────┐     JSON      ┌─────────────┐     No session?     ┌─────────────────┐
-│ Local Agent │───send cmd───►│  Local API  │────────────────────►│ NoiseSessionMgr │
-└─────────────┘               └──────┬──────┘                     │  .initiate_hs() │
+┌─────────────┐     JSON      ┌─────────────┐   No encryption?   ┌─────────────────┐
+│ Local Agent │───send cmd───►│  Local API  │────────────────────►│ HpkeAuthEncrypt │
+└─────────────┘               └──────┬──────┘                     │    .seal()      │
                                      │                            └────────┬────────┘
                                      │                                     │
-                                     │ ◄────────hs init payload────────────┘
+                                     │ ◄─────────encrypted payload───────────────┘
                                      │
                                      │ Route frame
                                      ▼
@@ -444,8 +440,8 @@ Options:
                                      ▼
                               ┌──────────────┐
                               │   Recipient  │
-                              │  noise.rs    │
-                              │process_inbound│
+                              │  hpke_seal.rs
+                              │  decrypt_open │
                               └──────────────┘
 ```
 
@@ -461,7 +457,7 @@ Options:
                     │                        │                        │
                     ▼                        ▼                        ▼
              ┌────────────┐          ┌────────────┐           ┌────────────┐
-             │   Noise    │          │  Contact   │           │  Webhook   │
+             │    HPKE      │
              │ decrypt    │          │  filter    │           │   POST     │
              └─────┬──────┘          └─────┬──────┘           └─────┬──────┘
                    │                       │                        │
@@ -510,7 +506,7 @@ Client (arpc)                                    Server (arps)
 
 ```
 arp-common
-    └─▶ ed25519-dalek, sha2, snow, thiserror
+    └─▶ ed25519-dalek, sha2, hpke, thiserror
 
 arps
     ├─▶ arp-common
@@ -520,8 +516,8 @@ arps
 
 arpc
     ├─▶ arp-common
-    ├─▶ tokio (full), tokio-tungstenite, snow
-    ├─▶ lru, reqwest
+    ├─▶ tokio (full), tokio-tungstenite, hpke
+    ├─▶ reqwest
     └─▶ tracing, clap, config, toml
 ```
 

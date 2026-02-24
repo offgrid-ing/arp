@@ -50,7 +50,7 @@ impl SmokeClient {
             panic!("expected challenge frame, got {frame:?}");
         };
 
-        let timestamp = crypto::unix_now();
+        let timestamp = crypto::unix_now().expect("clock error");
         let signature = crypto::sign_admission(keypair, &challenge, timestamp);
         let pubkey: Pubkey = keypair.verifying_key().to_bytes();
         let response = Frame::response(&pubkey, timestamp, &signature);

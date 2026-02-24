@@ -7,6 +7,15 @@ Type=simple
 ExecStart=/usr/local/bin/arpc start
 Restart=always
 RestartSec=5
+Environment=RUST_LOG=info
+# Security hardening
+User=arpc
+Group=arpc
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+ReadWritePaths=/home/arpc/.config/arpc
 
 [Install]
 WantedBy=multi-user.target

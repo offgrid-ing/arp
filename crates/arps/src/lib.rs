@@ -16,4 +16,4 @@ pub mod router;
 /// Accept loop and shared server state.
 pub mod server;
 
-pub use server::{run, ServerState};
+pub use server::{run, run_with_shutdown, ServerState};

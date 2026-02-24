@@ -1,6 +1,6 @@
 [package]
 name = "arps"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 repository = "https://github.com/offgrid-ing/arp"
 description = "Relay server for the Agent Relay Protocol"
@@ -23,6 +23,7 @@ tungstenite = { workspace = true }
 ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 dashmap = { workspace = true }
+lru = { workspace = true }
 axum = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }

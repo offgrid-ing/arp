@@ -193,13 +193,16 @@ async fn test_rate_limiting() {
 
     let server_keypair = SigningKey::generate(&mut OsRng);
     let config = test_config_with_params(addr, 1000, 5, 5);
-    let router = Router::new();
-
+    let router = Router::new(config.max_conns);
     let state = Arc::new(ServerState {
         router,
         server_keypair,
         config,
         ip_connections: dashmap::DashMap::new(),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+        seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(10_000).unwrap(),
+        )),
         pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
     });
 
@@ -248,6 +251,7 @@ async fn test_invalid_admission_signature() {
         "Sec-WebSocket-Protocol",
         arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
     );
+    req.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     let (mut ws_tx, mut ws_rx) = ws.split();
 
@@ -260,7 +264,7 @@ async fn test_invalid_admission_signature() {
         panic!("expected challenge frame");
     };
 
-    let timestamp = crypto::unix_now();
+    let timestamp = crypto::unix_now().expect("clock error");
     let invalid_signature = [0xFFu8; 64];
     let pubkey: Pubkey = keypair.verifying_key().to_bytes();
     let response = Frame::response(&pubkey, timestamp, &invalid_signature);
@@ -292,13 +296,16 @@ async fn test_admission_timeout() {
 
     let server_keypair = SigningKey::generate(&mut OsRng);
     let config = test_config_with_params(addr, 1000, 120, 1);
-    let router = Router::new();
-
+    let router = Router::new(config.max_conns);
     let state = Arc::new(ServerState {
         router,
         server_keypair,
         config,
         ip_connections: dashmap::DashMap::new(),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+        seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(10_000).unwrap(),
+        )),
         pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
     });
 
@@ -317,6 +324,7 @@ async fn test_admission_timeout() {
         "Sec-WebSocket-Protocol",
         arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
     );
+    req.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
     let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
     let (_ws_tx, mut ws_rx) = ws.split();
 
@@ -375,13 +383,16 @@ async fn test_max_connections_limit() {
 
     let server_keypair = SigningKey::generate(&mut OsRng);
     let config = test_config_with_params(addr, 2, 120, 5);
-    let router = Router::new();
-
+    let router = Router::new(config.max_conns);
     let state = Arc::new(ServerState {
         router,
         server_keypair,
         config,
         ip_connections: dashmap::DashMap::new(),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+        seen_challenges: std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(10_000).unwrap(),
+        )),
         pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
     });
 
@@ -407,6 +418,7 @@ async fn test_max_connections_limit() {
             "Sec-WebSocket-Protocol",
             arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
         );
+        r.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
         r
     };
     let connection_result = tokio::time::timeout(
@@ -427,5 +439,115 @@ async fn test_max_connections_limit() {
         })
         .await;
         assert!(result.unwrap_or(false), "expected 3rd connection to fail");
+    }
+}
+
+
+/// Test that admission succeeds with proof-of-work enabled (difficulty 8).
+/// Difficulty 8 requires ~256 hash attempts — fast enough for a test.
+#[tokio::test]
+async fn test_admission_with_pow() {
+    let (addr, _state) = start_server_with_pow(8).await;
+
+    let keypair_a = SigningKey::generate(&mut OsRng);
+    let keypair_b = SigningKey::generate(&mut OsRng);
+
+    // Both clients solve PoW and get admitted
+    let mut client_a = TestClient::connect_with_pow(&addr, &keypair_a).await;
+    let mut client_b = TestClient::connect_with_pow(&addr, &keypair_b).await;
+
+    // Verify the connection actually works — send a message through
+    client_a
+        .send_message(&client_b.pubkey, b"pow works")
+        .await;
+
+    let frame = client_b.recv_deliver().await;
+    match frame {
+        Frame::Deliver { src, payload } => {
+            assert_eq!(src, client_a.pubkey);
+            assert_eq!(payload, b"pow works");
+        }
+        other => panic!("expected Deliver, got {other:?}"),
+    }
+}
+
+/// Test that a client sending a response WITHOUT a PoW nonce gets rejected
+/// when the server requires PoW.
+#[tokio::test]
+async fn test_pow_required_rejects_no_nonce() {
+    let (addr, _state) = start_server_with_pow(8).await;
+
+    let url = format!("ws://{addr}");
+    let req = {
+        let mut r = url.into_client_request().unwrap();
+        r.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
+        );
+        r.headers_mut().insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+        r
+    };
+    let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
+    let (mut ws_tx, mut ws_rx) = ws.split();
+
+    // Read challenge
+    let challenge_msg = ws_rx.next().await.unwrap().unwrap();
+    let Message::Binary(challenge_data) = challenge_msg else {
+        panic!("expected binary");
+    };
+    let frame = Frame::parse(&challenge_data).unwrap();
+    let Frame::Challenge { challenge, .. } = frame else {
+        panic!("expected challenge");
+    };
+
+    // Send response WITHOUT PoW nonce
+    let keypair = SigningKey::generate(&mut OsRng);
+    let timestamp = arp_common::crypto::unix_now().expect("clock");
+    let signature = arp_common::crypto::sign_admission(&keypair, &challenge, timestamp);
+    let pubkey: Pubkey = keypair.verifying_key().to_bytes();
+    let response = Frame::response(&pubkey, timestamp, &signature); // no PoW!
+    ws_tx
+        .send(Message::Binary(response.serialize()))
+        .await
+        .unwrap();
+
+    // Should get rejected (or connection closed)
+    let result = tokio::time::timeout(Duration::from_secs(3), ws_rx.next()).await;
+    if let Ok(Some(Ok(Message::Binary(data)))) = result {
+        let frame = Frame::parse(&data).unwrap();
+        assert!(
+            matches!(frame, Frame::Rejected { .. }),
+            "expected Rejected, got {frame:?}"
+        );
+    }
+    // Connection closed or rejected — both are acceptable
+}
+
+
+/// Test that a direct connection without CF-Connecting-IP header gets rejected.
+#[tokio::test]
+async fn test_direct_connection_rejected() {
+    let (addr, _state) = start_server().await;
+
+    let url = format!("ws://{addr}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
+    );
+    // No CF-Connecting-IP header — simulates bypassing CF Tunnel
+    let result = tokio_tungstenite::connect_async(req).await;
+    match result {
+        Ok((ws, _)) => {
+            let (_, mut ws_rx) = ws.split();
+            // Server should close the connection
+            let msg = tokio::time::timeout(Duration::from_secs(2), ws_rx.next()).await;
+            match msg {
+                Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Err(_) => {}
+                Ok(Some(Err(_))) => {} // Reset/protocol error = also rejected
+                other => panic!("expected connection closed or error, got {other:?}"),
+            }
+        }
+        Err(_) => {} // Connection refused is also acceptable
     }
 }

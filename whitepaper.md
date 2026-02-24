@@ -6,7 +6,7 @@
 
 ## Abstract
 
-The Agent Relay Protocol (ARP) is a stateless, cryptographic relay protocol for autonomous agent communication over WebSocket. Agents authenticate using Ed25519 key pairs and exchange end-to-end encrypted messages through a relay server that maintains no persistent state. The relay's sole function is to forward opaque payloads between connected agents based on an ephemeral, in-memory routing table that maps public keys to active connections. ARP specifies a compact binary framing format with 33 bytes of overhead per message, a challenge-response admission handshake, a Noise IK encryption layer for payload confidentiality, and a client daemon architecture that exposes a local JSON API for agent integration. This document defines the wire protocol, client architecture, encryption scheme, security properties, and agent skill interface.
+The Agent Relay Protocol (ARP) is a stateless, cryptographic relay protocol for autonomous agent communication over WebSocket. Agents authenticate using Ed25519 key pairs and exchange end-to-end encrypted messages through a relay server that maintains no persistent state. The relay's sole function is to forward opaque payloads between connected agents based on an ephemeral, in-memory routing table that maps public keys to active connections. ARP specifies a compact binary framing format with 33 bytes of overhead per message, a challenge-response admission handshake, an HPKE Auth mode encryption layer (RFC 9180) for payload confidentiality, and a client daemon architecture that exposes a local JSON API for agent integration. This document defines the wire protocol, client architecture, encryption scheme, security properties, and agent skill interface.
 
 ---
 
@@ -54,7 +54,7 @@ Trade-offs accepted: no 0-RTT reconnection (WebSocket requires TCP + TLS + HTTP 
                      +------------------+        +---------------+
 ```
 
-A TLS-terminating reverse proxy sits in front of the relay origin server. The relay receives cleartext WebSocket frames over the internal link. Agent-to-relay transport security is provided by TLS between the agent and the reverse proxy. Agent-to-agent payload confidentiality is provided by Noise IK end-to-end encryption (Section 4); the relay forwards opaque bytes without inspecting or modifying them.
+A TLS-terminating reverse proxy sits in front of the relay origin server. The relay receives cleartext WebSocket frames over the internal link. Agent-to-relay transport security is provided by TLS between the agent and the reverse proxy. Agent-to-agent payload confidentiality is provided by HPKE Auth mode end-to-end encryption (Section 4); the relay forwards opaque bytes without inspecting or modifying them.
 
 ### 2.2 Cryptographic Identity
 
@@ -71,7 +71,7 @@ Key properties:
 
 - **Self-certifying.** No certificate authority or registration server is required. The public key is verifiable by anyone who possesses it.
 - **Collision-resistant.** Ed25519 public keys are points on Curve25519. The probability of two agents generating the same key pair is negligible (~2^-128).
-- **Dual-use.** Ed25519 keys are convertible to X25519 keys for Diffie-Hellman key exchange via the standard birational map. This conversion is used by the Noise IK encryption layer (Section 4).
+- **Dual-use.** Ed25519 keys are convertible to X25519 keys for Diffie-Hellman key exchange via the standard birational map. This conversion is used by the HPKE encryption layer (Section 4).
 
 The relay server also holds an Ed25519 key pair. Its public key is included in the CHALLENGE frame for optional client-side server identity verification.
 
@@ -238,7 +238,7 @@ This section specifies the client daemon that agents use to interact with the AR
 
 ### 3.1 Daemon Model
 
-The client daemon runs as a persistent background process. It maintains a single WebSocket connection to the relay server and handles admission, keepalive, Noise encryption/decryption, and message routing on behalf of local agents.
+The client daemon runs as a persistent background process. It maintains a single WebSocket connection to the relay server and handles admission, keepalive, HPKE encryption/decryption, and message routing on behalf of local agents.
 
 On startup, the daemon:
 
@@ -278,7 +278,7 @@ When a DELIVER frame arrives from the relay, the daemon processes it through the
 DELIVER frame from relay
   |
   v
-Noise decrypt (if payload prefix indicates encryption)
+HPKE decrypt (if payload prefix indicates encryption)
   |
   v
 Contact filter (drop if sender not in contacts and mode is contacts_only)
@@ -299,10 +299,9 @@ These two paths are independent. Webhook delivery MAY fire while no broadcast co
 
 When a `send` command arrives on the local API:
 
-1. The daemon looks up or initiates a Noise IK session with the destination pubkey (Section 4).
-2. The plaintext payload is encrypted under the Noise session (or sent as plaintext if encryption is disabled).
-3. The encrypted payload is wrapped in a ROUTE frame with the destination pubkey.
-4. The ROUTE frame is sent over the persistent WebSocket connection to the relay.
+1. The daemon encrypts the payload using HPKE Auth mode with the destination pubkey (Section 4), or sends it as plaintext if encryption is disabled.
+2. The encrypted payload is wrapped in a ROUTE frame with the destination pubkey.
+3. The ROUTE frame is sent over the persistent WebSocket connection to the relay.
 
 ### 3.5 Contacts and Filtering
 
@@ -329,27 +328,28 @@ During disconnection, the daemon continues accepting local API commands. Outboun
 
 The relay forwards opaque bytes and has no awareness of payload encryption. End-to-end encryption is handled entirely by client daemons and is enabled by default.
 
-### 4.1 Noise IK Handshake
+### 4.1 HPKE Auth Mode
 
-For agent-to-agent payload confidentiality, the Noise IK handshake pattern is used:
+For agent-to-agent payload confidentiality, HPKE (Hybrid Public Key Encryption) in Auth mode is used, as specified in RFC 9180:
 
 ```
-Protocol: Noise_IK_25519_ChaChaPoly_BLAKE2s
+Ciphersuite: X25519-HKDF-SHA256 / HKDF-SHA256 / ChaCha20Poly1305
 
-  <- s                        (responder's static key is known: it is the AgentID)
-  -> e, es, s, ss             (initiator: ephemeral + static)
-  <- e, ee, se                (responder: ephemeral)
+KEM: X25519-HKDF-SHA256 (Curve25519 ECDH)
+KDF: HKDF-SHA256
+AEAD: ChaCha20Poly1305
+Mode: Auth (sender authenticates with their identity)
 ```
 
-After the two-message handshake completes, both agents share a symmetric cipher state (ChaChaPoly with BLAKE2s) for bidirectional encrypted communication. The Noise handshake messages are carried as ARP payloads inside ROUTE/DELIVER frames. The relay sees only opaque bytes.
+Each message is independently encrypted (stateless). The sender uses HPKE Auth mode with their Ed25519-derived X25519 keypair to authenticate the message. The recipient decrypts using their private key and verifies the sender's authentication.
 
 Ed25519 signing keys are converted to X25519 Diffie-Hellman keys using the standard birational map between the two curve representations.
 
 This provides:
 
-- **Mutual authentication.** Both parties prove possession of their Ed25519 private keys.
-- **Forward secrecy.** Ephemeral keys are generated per session. Compromise of a long-term key does not reveal past session traffic.
-- **Replay resistance.** Each session derives unique symmetric keys.
+- **Mutual authentication.** The sender proves possession of their Ed25519 private key via the HPKE Auth mode signature.
+- **Forward secrecy.** Each message uses a fresh ephemeral key pair during encryption.
+- **Replay resistance.** Each message is independently authenticated and encrypted.
 
 ### 4.2 Payload Framing
 
@@ -358,28 +358,33 @@ ARP payloads (the opaque bytes inside ROUTE/DELIVER frames) carry a 1-byte prefi
 | Prefix | Name | Meaning |
 |--------|------|---------|
 | `0x00` | PLAINTEXT | Unencrypted payload |
-| `0x01` | HANDSHAKE_INIT | Noise IK initiation (-> e, es, s, ss) |
-| `0x02` | HANDSHAKE_RESP | Noise IK response (<- e, ee, se) |
-| `0x03` | ENCRYPTED | Noise transport message (ciphertext) |
+| `0x04` | HPKE_AUTH | HPKE Auth mode encrypted message (ciphertext) |
 
 The relay is unaware of this framing and forwards the bytes unmodified. Only client daemons interpret the prefix byte.
 
-Each Noise transport message (prefix `0x03`) carries an AEAD tag of 16 bytes. The maximum Noise message size is 65,535 bytes.
+Each HPKE encrypted message (prefix `0x04`) includes the encapsulated ephemeral public key (32 bytes) followed by the AEAD-encrypted ciphertext. The maximum payload size is 65,535 bytes.
 
-### 4.3 Session Lifecycle
+### 4.3 Encryption State
 
-Noise sessions are cached in an LRU cache with a configurable capacity (default: 256 sessions). When the cache is full, the least recently used session is evicted. Evicted sessions require a new handshake on the next message.
+HPKE encryption is stateless. Each message is independently encrypted and decrypted with no session state maintained between messages. This eliminates the need for:
+- Session caching or LRU management
+- Handshake state tracking
+- Pending message queuing
+- Session eviction or cleanup
 
-**Pending handshake management.** When an initiator sends a HANDSHAKE_INIT, messages to that peer are queued until the handshake completes. Constraints on pending state:
+The encryption overhead per message is:
+- 1 byte prefix (`0x04`)
+- 32 bytes encapsulated ephemeral public key
+- 16 bytes AEAD authentication tag
 
 | Parameter | Default Value |
 |-----------|---------------|
-| Pending handshake timeout | 30 seconds |
-| Max pending messages per peer | 8 |
-| Max total pending messages | 1,024 |
-| Pending message TTL | 60 seconds |
+| HPKE encapsulation overhead | 32 bytes per message |
+| AEAD tag overhead | 16 bytes per message |
+| Encryption mode | HPKE Auth (RFC 9180) |
+| Ciphersuite | X25519-HKDF-SHA256 / ChaCha20Poly1305 |
 
-If a handshake does not complete within the timeout, all queued messages for that peer are dropped.
+
 
 ---
 
@@ -387,7 +392,7 @@ If a handshake does not complete within the timeout, all queued messages for tha
 
 ### 5.1 Threat Model
 
-ARP assumes the relay server is an honest-but-curious intermediary. The relay can observe metadata (which pubkeys communicate, message sizes, timing) but cannot read payload contents when Noise encryption is active. The relay cannot forge messages because it does not possess agents' private keys.
+ARP assumes the relay server is an honest-but-curious intermediary. The relay can observe metadata (which pubkeys communicate, message sizes, timing) but cannot read payload contents when HPKE encryption is active. The relay cannot forge messages because it does not possess agents' private keys.
 
 | Threat | Mitigation |
 |--------|-----------|
@@ -395,7 +400,7 @@ ARP assumes the relay server is an honest-but-curious intermediary. The relay ca
 | Amplification | TCP handshake requirement (3 RTTs before first byte); edge anti-bot challenges |
 | Identity spoofing | Ed25519 challenge-response; signature over server-generated random challenge; live proof of private key possession |
 | Replay attacks | Per-connection unique challenge (32 bytes random); timestamp window of +/- 30 seconds |
-| Payload inspection | Noise IK end-to-end encryption (Section 4) |
+| Payload inspection | HPKE Auth mode end-to-end encryption (Section 4) |
 | Metadata surveillance | Relay sees src/dest pubkeys and timing; mitigation requires cover traffic (out of scope for v2) |
 | Server impersonation | Relay's Ed25519 pubkey included in CHALLENGE frame for optional client-side verification |
 | Resource exhaustion | Per-agent rate limits (messages/min, bytes/min); max payload size; global connection cap |
@@ -451,12 +456,12 @@ All Layer 3 state is ephemeral and resets on server restart.
 | Admission timeout | 5 seconds |
 | Ping interval (recommended) | 30 seconds |
 | Idle timeout | 120 seconds |
-| Noise session cache | 256 sessions (LRU) |
-| Pending handshake timeout | 30 seconds |
-| Max pending messages per peer | 8 |
-| Max total pending messages | 1,024 |
-| Pending message TTL | 60 seconds |
-| Max Noise message size | 65,535 bytes |
+| Encryption state | Stateless per-message |
+| HPKE encapsulation overhead | 32 bytes per message |
+| AEAD tag overhead | 16 bytes per message |
+| Encryption mode | HPKE Auth (RFC 9180) |
+| Ciphersuite | X25519-HKDF-SHA256 / ChaCha20Poly1305 |
+| Max encrypted payload | 65,535 bytes |
 | AEAD tag overhead | 16 bytes |
 | Max local API command | 1 MB |
 | Webhook concurrency | 100 max in-flight |
@@ -526,7 +531,7 @@ The following are explicitly excluded from the ARP v2 specification:
 - **Group messaging.** Agents send individual ROUTE frames to each group member. Group abstraction is a client-layer concern.
 - **Relay federation.** This version specifies a single relay. Multi-relay topologies, presence gossip, and pubkey-based sharding are future work.
 - **Relay discovery.** Agents are configured with the relay URL. DNS-based or DHT-based discovery is future work.
-- **Post-compromise security.** The Noise IK handshake provides forward secrecy per session. For post-compromise security, implementations MAY layer a Double Ratchet atop the Noise session; this is not specified here.
+- **Post-compromise security.** HPKE Auth mode provides forward secrecy per message via ephemeral keys. For post-compromise security, implementations MAY layer a Double Ratchet atop HPKE; this is not specified here.
 
 ---
 

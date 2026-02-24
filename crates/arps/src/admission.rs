@@ -37,7 +37,7 @@ where
             signature,
             pow_nonce,
         } => {
-            let now = crypto::unix_now();
+            let now = crypto::unix_now().map_err(|_| ArpsError::ClockError)?;
 
             if now.abs_diff(timestamp) > TIMESTAMP_TOLERANCE {
                 return Err(ArpsError::TimestampExpired);
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn timestamp_within_tolerance_is_valid() {
-        let now = crypto::unix_now();
+        let now = crypto::unix_now().unwrap();
         assert!(now.abs_diff(now) <= TIMESTAMP_TOLERANCE);
         assert!(now.abs_diff(now + 29) <= TIMESTAMP_TOLERANCE);
         assert!(now.abs_diff(now - 29) <= TIMESTAMP_TOLERANCE);
@@ -78,27 +78,27 @@ mod tests {
 
     #[test]
     fn timestamp_outside_tolerance_is_invalid() {
-        let now = crypto::unix_now();
+        let now = crypto::unix_now().unwrap();
         assert!(now.abs_diff(now + 31) > TIMESTAMP_TOLERANCE);
         assert!(now.abs_diff(now.saturating_sub(31)) > TIMESTAMP_TOLERANCE);
     }
 
     #[test]
     fn timestamp_at_boundary_is_valid() {
-        let now = crypto::unix_now();
+        let now = crypto::unix_now().unwrap();
         assert!(now.abs_diff(now + 30) <= TIMESTAMP_TOLERANCE);
         assert!(now.abs_diff(now - 30) <= TIMESTAMP_TOLERANCE);
     }
 
     #[test]
     fn timestamp_zero_is_rejected() {
-        let now = crypto::unix_now();
+        let now = crypto::unix_now().unwrap();
         assert!(now.abs_diff(0) > TIMESTAMP_TOLERANCE);
     }
 
     #[test]
     fn timestamp_far_future_is_rejected() {
-        let now = crypto::unix_now();
+        let now = crypto::unix_now().unwrap();
         assert!(now.abs_diff(u64::MAX) > TIMESTAMP_TOLERANCE);
     }
 }

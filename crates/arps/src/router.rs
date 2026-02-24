@@ -18,16 +18,19 @@ pub struct ConnHandle {
 #[derive(Debug)]
 pub struct Router {
     routes: DashMap<Pubkey, ConnHandle>,
+    _max_capacity: usize,
 }
 
 impl Router {
-    /// Create an empty router.
+    /// Create an empty router with the given maximum capacity.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(max_capacity: usize) -> Self {
         Self {
             routes: DashMap::new(),
+            _max_capacity: max_capacity,
         }
     }
+
 
     /// Insert a connection handle, returning any previous handle for the same key.
     #[must_use]
@@ -62,7 +65,7 @@ impl Router {
 
 impl Default for Router {
     fn default() -> Self {
-        Self::new()
+        Self::new(100_000)
     }
 }
 
@@ -88,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_insert_and_get_returns_handle() {
-        let router = Router::new();
+        let router = Router::new(100_000);
         let pubkey = make_pubkey(1);
         let (handle, _rx) = make_handle(pubkey);
 
@@ -103,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_get_on_missing_key_returns_none() {
-        let router = Router::new();
+        let router = Router::new(100_000);
         let pubkey = make_pubkey(1);
 
         let result = router.get(&pubkey);
@@ -112,7 +115,7 @@ mod tests {
 
     #[test]
     fn test_insert_same_key_replaces_old_handle() {
-        let router = Router::new();
+        let router = Router::new(100_000);
         let pubkey = make_pubkey(1);
         let (handle1, _rx1) = make_handle(pubkey);
         let (handle2, _rx2) = make_handle(pubkey);
@@ -126,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_remove_if_with_matching_admitted_at_removes_entry() {
-        let router = Router::new();
+        let router = Router::new(100_000);
         let pubkey = make_pubkey(1);
         let admitted_at = Instant::now();
         let (tx, _rx) = mpsc::channel(1);
@@ -146,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_remove_if_with_non_matching_admitted_at_keeps_entry() {
-        let router = Router::new();
+        let router = Router::new(100_000);
         let pubkey = make_pubkey(1);
         let admitted_at1 = Instant::now();
         let (tx, _rx) = mpsc::channel(1);
@@ -167,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_len_and_is_empty() {
-        let router = Router::new();
+        let router = Router::new(100_000);
         assert!(router.is_empty());
         assert_eq!(router.len(), 0);
 

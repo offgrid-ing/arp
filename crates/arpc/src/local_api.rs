@@ -6,7 +6,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
@@ -159,14 +159,19 @@ where
 {
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
-
-    while reader.read_line(&mut line).await? > 0 {
+    loop {
+        line.clear();
+        let mut limited = (&mut reader).take(MAX_CMD_LEN as u64 + 1);
+        match tokio::io::AsyncBufReadExt::read_line(&mut limited, &mut line).await {
+            Ok(0) => break, // EOF
+            Ok(_) => {}
+            Err(e) => return Err(e.into()),
+        }
         if line.len() > MAX_CMD_LEN {
             let error = serde_json::to_string(&serde_json::json!({
                 "error": format!("command exceeds maximum length ({MAX_CMD_LEN} bytes)")
             }))? + "\n";
             writer.write_all(error.as_bytes()).await?;
-            line.clear();
             continue;
         }
 
@@ -438,6 +443,7 @@ mod tests {
     use super::*;
     use crate::contacts::ContactStore;
     use crate::relay::{ConnStatus, InboundMsg, OutboundMsg};
+    use tokio::io::AsyncBufReadExt;
     use tokio::io::{duplex, AsyncWriteExt};
     use tokio::sync::{broadcast, mpsc, watch};
 

@@ -99,7 +99,7 @@ impl WebhookClient {
             let _permit = permit; // Hold permit until async block completes
             let result = http
                 .post(&url)
-                .header("Authorization", format!("Bearer {token}"))
+                .bearer_auth(&token)
                 .json(&webhook_body)
                 .send()
                 .await;

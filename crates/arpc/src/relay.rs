@@ -10,15 +10,12 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 use tracing::{debug, error, info, warn};
-
-#[cfg(feature = "noise")]
-use crate::noise::{InboundResult, NoiseSessionManager};
 
 #[derive(Debug)]
 enum RelayError {
@@ -53,7 +50,7 @@ pub struct InboundMsg {
 pub struct OutboundMsg {
     /// Recipient's Ed25519 public key.
     pub dest: Pubkey,
-    /// Raw payload bytes (will be encrypted if Noise is enabled).
+    /// Raw payload bytes (will be encrypted if encryption is enabled).
     pub payload: Vec<u8>,
     /// Optional channel to receive the relay's status code for this send.
     pub ack_tx: Option<oneshot::Sender<u8>>,
@@ -146,44 +143,6 @@ pub async fn relay_connection_manager(
     }
 }
 
-#[cfg(feature = "noise")]
-const MAX_PENDING_PER_PEER: usize = 8;
-#[cfg(feature = "noise")]
-const MAX_TOTAL_PENDING: usize = 1024;
-#[cfg(feature = "noise")]
-const PENDING_TTL_SECONDS: u64 = 60;
-
-/// Each queued outbound entry: (payload, enqueue_time, optional ack sender).
-/// The ack sender is moved to `pending_acks` only when the encrypted message
-/// is actually sent over the wire — NOT when the handshake init is sent.
-#[cfg(feature = "noise")]
-type PendingEntry = (Vec<u8>, Instant, Option<oneshot::Sender<u8>>);
-
-#[cfg(feature = "noise")]
-fn remove_oldest_pending(pending: &mut HashMap<Pubkey, VecDeque<PendingEntry>>) {
-    let mut oldest_key = None;
-    let mut oldest_time = Instant::now();
-
-    for (key, queue) in pending.iter() {
-        if let Some((_, time, _)) = queue.front() {
-            if *time < oldest_time {
-                oldest_time = *time;
-                oldest_key = Some(*key);
-            }
-        }
-    }
-
-    if let Some(key) = oldest_key {
-        if let Some(queue) = pending.get_mut(&key) {
-            queue.pop_front(); // ack_tx dropped → receiver gets RecvError
-            if queue.is_empty() {
-                pending.remove(&key);
-            }
-        }
-        warn!("removed oldest pending message due to global limit");
-    }
-}
-
 async fn perform_relay_handshake<S>(
     ws_tx: &mut SplitSink<WebSocketStream<S>, Message>,
     ws_rx: &mut SplitStream<WebSocketStream<S>>,
@@ -215,12 +174,14 @@ where
             "expected challenge frame"
         )));
     };
-    let timestamp = crypto::unix_now();
+    let timestamp = crypto::unix_now()
+        .map_err(|e| RelayError::Fatal(anyhow::anyhow!("system clock error: {e}")))?;
     let signature = crypto::sign_admission(keypair, &challenge, timestamp);
     let pubkey: Pubkey = keypair.verifying_key().to_bytes();
     let response = if difficulty > 0 {
         tracing::debug!(difficulty, "solving proof-of-work");
-        let nonce = crypto::pow_solve(&challenge, &pubkey, timestamp, difficulty);
+        let nonce = crypto::pow_solve(&challenge, &pubkey, timestamp, difficulty)
+            .map_err(|e| RelayError::Fatal(anyhow::anyhow!("PoW solver failed: {e}")))?;
         Frame::response_with_pow(&pubkey, timestamp, &signature, nonce)
     } else {
         Frame::response(&pubkey, timestamp, &signature)
@@ -266,167 +227,6 @@ where
     }
 }
 
-#[cfg(feature = "noise")]
-#[allow(clippy::too_many_arguments)]
-async fn handle_noise_deliver<S>(
-    noise_mgr: &mut NoiseSessionManager,
-    pending_outbound: &mut HashMap<Pubkey, VecDeque<PendingEntry>>,
-    pending_acks: &mut HashMap<Pubkey, VecDeque<oneshot::Sender<u8>>>,
-    ws_tx: &mut SplitSink<WebSocketStream<S>, Message>,
-    inbox_tx: &broadcast::Sender<InboundMsg>,
-    webhook: Option<&WebhookClient>,
-    contacts: &ContactStore,
-    src: Pubkey,
-    payload: Vec<u8>,
-) -> Result<(), RelayError>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    match noise_mgr.process_inbound(&src, &payload) {
-        Ok(InboundResult::Payload(decrypted)) => {
-            deliver_inbound(inbox_tx, webhook, contacts, src, decrypted);
-        }
-        Ok(InboundResult::HandshakeResponse {
-            to,
-            data: resp_data,
-        }) => {
-            let route = Frame::route(&to, &resp_data);
-            ws_tx
-                .send(Message::Binary(route.serialize()))
-                .await
-                .map_err(|e| RelayError::Transient(e.into()))?;
-            // Responder's session is ready — flush any queued outbound messages
-            flush_pending_outbound(noise_mgr, pending_outbound, pending_acks, ws_tx, &to).await?;
-        }
-        Ok(InboundResult::HandshakeComplete) => {
-            // Initiator's session is ready — flush any queued outbound messages
-            flush_pending_outbound(noise_mgr, pending_outbound, pending_acks, ws_tx, &src).await?;
-        }
-        Err(e) => {
-            warn!(error = %e, from = %arp_common::base58::encode(&src), "noise: dropping undecryptable message");
-            noise_mgr.remove_session(&src);
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "noise")]
-async fn flush_pending_outbound<S>(
-    noise_mgr: &mut NoiseSessionManager,
-    pending_outbound: &mut HashMap<Pubkey, VecDeque<PendingEntry>>,
-    pending_acks: &mut HashMap<Pubkey, VecDeque<oneshot::Sender<u8>>>,
-    ws_tx: &mut SplitSink<WebSocketStream<S>, Message>,
-    peer: &Pubkey,
-) -> Result<(), RelayError>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    if let Some(queued) = pending_outbound.remove(peer) {
-        let now = Instant::now();
-        let ttl = Duration::from_secs(PENDING_TTL_SECONDS);
-        for (queued_payload, timestamp, ack_tx) in queued {
-            if now.duration_since(timestamp) < ttl {
-                match noise_mgr.encrypt(peer, &queued_payload) {
-                    Ok(Some(encrypted)) => {
-                        let route = Frame::route(peer, &encrypted);
-                        ws_tx
-                            .send(Message::Binary(route.serialize()))
-                            .await
-                            .map_err(|e| RelayError::Transient(e.into()))?;
-                        // Message actually sent — now register ack
-                        if let Some(tx) = ack_tx {
-                            pending_acks.entry(*peer).or_default().push_back(tx);
-                        }
-                    }
-                    Ok(None) => {
-                        warn!("session lost during queue flush");
-                        // ack_tx dropped → receiver gets RecvError
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "encrypt failed during queue flush");
-                        // ack_tx dropped → receiver gets RecvError
-                    }
-                }
-            } else {
-                warn!("dropping expired pending message for peer");
-                // ack_tx dropped → receiver gets RecvError
-            }
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "noise")]
-#[allow(clippy::too_many_arguments)]
-async fn handle_noise_outbound<S>(
-    noise_mgr: &mut NoiseSessionManager,
-    pending_outbound: &mut HashMap<Pubkey, VecDeque<PendingEntry>>,
-    pending_acks: &mut HashMap<Pubkey, VecDeque<oneshot::Sender<u8>>>,
-    ws_tx: &mut SplitSink<WebSocketStream<S>, Message>,
-    msg: OutboundMsg,
-    ack_tx: Option<oneshot::Sender<u8>>,
-) -> Result<(), RelayError>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let total_pending: usize = pending_outbound.values().map(|v| v.len()).sum();
-    if total_pending >= MAX_TOTAL_PENDING {
-        remove_oldest_pending(pending_outbound);
-    }
-
-    match noise_mgr.encrypt(&msg.dest, &msg.payload) {
-        Ok(Some(encrypted)) => {
-            let route = Frame::route(&msg.dest, &encrypted);
-            ws_tx
-                .send(Message::Binary(route.serialize()))
-                .await
-                .map_err(|e| RelayError::Transient(e.into()))?;
-            // Register ack for the actual encrypted message Route
-            if let Some(tx) = ack_tx {
-                pending_acks.entry(msg.dest).or_default().push_back(tx);
-            }
-        }
-        Ok(None) => {
-            if !noise_mgr.has_pending_handshake(&msg.dest) {
-                match noise_mgr.initiate_handshake(&msg.dest) {
-                    Ok(hs_data) => {
-                        let route = Frame::route(&msg.dest, &hs_data);
-                        ws_tx
-                            .send(Message::Binary(route.serialize()))
-                            .await
-                            .map_err(|e| RelayError::Transient(e.into()))?;
-                        // Do NOT register ack here — Status for handshake init
-                        // is not the same as Status for the actual message
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "failed to initiate noise handshake");
-                        // ack_tx dropped → receiver gets RecvError
-                        return Ok(());
-                    }
-                }
-            }
-            let queue = pending_outbound.entry(msg.dest).or_default();
-            if queue.len() < MAX_PENDING_PER_PEER {
-                queue.push_back((msg.payload, Instant::now(), ack_tx));
-            } else {
-                warn!("dropping message: pending queue full for peer");
-                // ack_tx dropped → receiver gets RecvError
-            }
-        }
-        Err(e) => {
-            // Fail closed: do not send plaintext when encryption is enabled but fails.
-            // This prevents accidental disclosure of sensitive data.
-            // ack_tx dropped → receiver gets RecvError
-            return Err(RelayError::Fatal(anyhow::anyhow!(
-                "noise encrypt failed for {}: {}",
-                arp_common::base58::encode(&msg.dest),
-                e
-            )));
-        }
-    }
-    Ok(())
-}
-
 async fn connect_and_run(
     config: &ClientConfig,
     keypair: &ed25519_dalek::SigningKey,
@@ -458,12 +258,8 @@ async fn connect_and_run(
     status_tx.send_replace(ConnStatus::Connected);
     info!("admitted to relay");
 
-    #[cfg(feature = "noise")]
-    let noise_enabled = config.noise.enabled;
-    #[cfg(feature = "noise")]
-    let mut noise_mgr = NoiseSessionManager::new(keypair);
-    #[cfg(feature = "noise")]
-    let mut pending_outbound: HashMap<Pubkey, VecDeque<PendingEntry>> = HashMap::new();
+    #[cfg(feature = "encryption")]
+    let encryption_enabled = config.encryption.enabled;
 
     let mut pending_acks: HashMap<Pubkey, VecDeque<oneshot::Sender<u8>>> = HashMap::new();
     let mut ping_interval = tokio::time::interval(Duration::from_secs(config.keepalive.interval_s));
@@ -485,20 +281,20 @@ async fn connect_and_run(
                         };
                         match frame {
                             Frame::Deliver { src, payload } => {
-                                #[cfg(feature = "noise")]
-                                if noise_enabled {
-                                    handle_noise_deliver(
-                                        &mut noise_mgr,
-                                        &mut pending_outbound,
-                                        &mut pending_acks,
-                                        &mut ws_tx,
-                                        inbox_tx,
-                                        webhook,
-                                        contacts,
-                                        src,
-                                        payload,
-                                    )
-                                    .await?;
+                                #[cfg(feature = "encryption")]
+                                if encryption_enabled {
+                                    match crate::hpke_seal::open(keypair, &src, &payload) {
+                                        Ok(decrypted) => {
+                                            deliver_inbound(inbox_tx, webhook, contacts, src, decrypted);
+                                        }
+                                        Err(e) => {
+                                            if payload.first() == Some(&crate::hpke_seal::prefix::PLAINTEXT) {
+                                                deliver_inbound(inbox_tx, webhook, contacts, src, payload[1..].to_vec());
+                                            } else {
+                                                warn!(error = %e, from = %arp_common::base58::encode(&src), "hpke: dropping undecryptable message");
+                                            }
+                                        }
+                                    }
                                     continue;
                                 }
                                 deliver_inbound(inbox_tx, webhook, contacts, src, payload);
@@ -540,27 +336,40 @@ async fn connect_and_run(
 
                 let dest = msg.dest;
                 let ack_tx = msg.ack_tx.take();
-                #[cfg(feature = "noise")]
-                if noise_enabled {
-                    handle_noise_outbound(
-                        &mut noise_mgr,
-                        &mut pending_outbound,
-                        &mut pending_acks,
-                        &mut ws_tx,
-                        msg,
-                        ack_tx,
-                    )
-                    .await?;
-                    continue;
-                }
-                let route = Frame::route(&msg.dest, &msg.payload);
+
+                #[cfg(feature = "encryption")]
+                let wire_payload = if encryption_enabled {
+                    match crate::hpke_seal::seal(keypair, &msg.dest, &msg.payload) {
+                        Ok(encrypted) => encrypted,
+                        Err(e) => {
+                            error!(error = %e, "hpke seal failed");
+                            continue;
+                        }
+                    }
+                } else {
+                    msg.payload
+                };
+                #[cfg(not(feature = "encryption"))]
+                let wire_payload = msg.payload;
+
+                let route = Frame::route(&dest, &wire_payload);
                 ws_tx.send(Message::Binary(route.serialize())).await
                     .map_err(|e| RelayError::Transient(e.into()))?;
                 if let Some(ack_tx) = ack_tx {
-                    pending_acks.entry(dest).or_default().push_back(ack_tx);
+                    let queue = pending_acks.entry(dest).or_default();
+                    if queue.len() >= 16 {
+                        // Evict oldest pending ack — send synthetic OFFLINE
+                        // so caller gets a meaningful error, not a generic RecvError
+                        if let Some(evicted) = queue.pop_front() {
+                            let _ = evicted.send(arp_common::types::status_code::OFFLINE);
+                        }
+                    }
+                    queue.push_back(ack_tx);
+                    if pending_acks.len() > 256 {
+                        pending_acks.retain(|_, q| !q.is_empty());
+                    }
                 }
             }
-
             _ = ping_interval.tick() => {
                 ws_tx.send(Message::Ping(vec![])).await
                     .map_err(|e| RelayError::Transient(e.into()))?;

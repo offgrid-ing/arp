@@ -97,8 +97,8 @@ pub struct ClientConfig {
     pub reconnect: ReconnectConfig,
     /// WebSocket keepalive ping settings.
     pub keepalive: KeepaliveConfig,
-    /// Noise protocol encryption settings.
-    pub noise: NoiseConfig,
+    /// E2E encryption settings (HPKE Auth mode, RFC 9180).
+    pub encryption: EncryptionConfig,
     /// Inbound message webhook delivery settings.
     pub webhook: WebhookConfig,
     /// OpenClaw gateway bridge settings.
@@ -123,14 +123,14 @@ pub struct KeepaliveConfig {
     pub interval_s: u64,
 }
 
-/// Noise E2E encryption toggle.
+/// E2E encryption toggle (HPKE Auth mode, RFC 9180).
 #[derive(Debug, Deserialize, Clone)]
-pub struct NoiseConfig {
-    /// Whether Noise E2E encryption is enabled.
+pub struct EncryptionConfig {
+    /// Whether E2E encryption is enabled.
     pub enabled: bool,
 }
 
-impl Default for NoiseConfig {
+impl Default for EncryptionConfig {
     fn default() -> Self {
         Self { enabled: true }
     }
@@ -197,7 +197,7 @@ impl Default for ClientConfig {
             listen: "tcp://127.0.0.1:7700".to_string(),
             reconnect: ReconnectConfig::default(),
             keepalive: KeepaliveConfig::default(),
-            noise: NoiseConfig::default(),
+            encryption: EncryptionConfig::default(),
             webhook: WebhookConfig::default(),
             bridge: BridgeConfig::default(),
         }
@@ -234,8 +234,10 @@ impl ClientConfig {
         if self.reconnect.max_delay_ms < self.reconnect.initial_delay_ms {
             return Err("reconnect.max_delay_ms must be >= initial_delay_ms".to_string());
         }
-        if self.reconnect.backoff_factor <= 0.0 {
-            return Err("reconnect.backoff_factor must be greater than 0".to_string());
+        if !self.reconnect.backoff_factor.is_finite() || self.reconnect.backoff_factor <= 0.0 {
+            return Err(
+                "reconnect.backoff_factor must be a finite number greater than 0".to_string(),
+            );
         }
 
         if self.keepalive.interval_s == 0 {
@@ -309,7 +311,7 @@ pub fn load_config(path: Option<&Path>) -> anyhow::Result<ClientConfig> {
             defaults.reconnect.backoff_factor,
         )?
         .set_default("keepalive.interval_s", defaults.keepalive.interval_s as i64)?
-        .set_default("noise.enabled", defaults.noise.enabled)?
+        .set_default("encryption.enabled", defaults.encryption.enabled)?
         .set_default("webhook.enabled", defaults.webhook.enabled)?
         .set_default("webhook.url", defaults.webhook.url.as_str())?
         .set_default("webhook.token", defaults.webhook.token.as_str())?
@@ -382,9 +384,9 @@ mod tests {
     }
 
     #[test]
-    fn test_noise_config_default_enabled() {
-        let config = NoiseConfig::default();
-        assert!(config.enabled, "noise should be enabled by default");
+    fn test_encryption_config_default_enabled() {
+        let config = EncryptionConfig::default();
+        assert!(config.enabled, "encryption should be enabled by default");
     }
 
     #[test]

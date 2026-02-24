@@ -2,9 +2,10 @@ use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
-
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
 const KEY_FILE_PERMS: u32 = 0o600;
 
 /// # Errors
@@ -13,15 +14,17 @@ const KEY_FILE_PERMS: u32 = 0o600;
 /// or if file I/O fails.
 pub fn load_or_generate_keypair(path: &Path) -> anyhow::Result<SigningKey> {
     if path.exists() {
-        let metadata = fs::metadata(path)?;
-        let permissions = metadata.permissions().mode();
-
-        if permissions & 0o077 != 0 {
-            anyhow::bail!(
-                "key file {} has overly permissive permissions ({:o}), must be 0600",
-                path.display(),
-                permissions & 0o777
-            );
+        #[cfg(unix)]
+        {
+            let metadata = fs::metadata(path)?;
+            let permissions = metadata.permissions().mode();
+            if permissions & 0o077 != 0 {
+                anyhow::bail!(
+                    "key file {} has overly permissive permissions ({:o}), must be 0600",
+                    path.display(),
+                    permissions & 0o777
+                );
+            }
         }
 
         let seed = fs::read(path)?;
@@ -48,11 +51,18 @@ pub fn load_or_generate_keypair(path: &Path) -> anyhow::Result<SigningKey> {
         }
 
         // Create file with restrictive permissions atomically
+        #[cfg(unix)]
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(KEY_FILE_PERMS)
+            .open(path)?;
+        #[cfg(not(unix))]
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
             .open(path)?;
         file.write_all(&seed)?;
         drop(file);

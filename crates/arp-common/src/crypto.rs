@@ -7,6 +7,65 @@
 use crate::Pubkey;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use sha2::{Digest, Sha256};
+use std::fmt;
+
+// ── Error types ──────────────────────────────────────────────────────────────
+
+/// Error returned when the system clock is before the Unix epoch.
+#[derive(Debug, Clone, Copy)]
+pub struct ClockError;
+
+impl fmt::Display for ClockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "system clock is before Unix epoch")
+    }
+}
+
+impl std::error::Error for ClockError {}
+
+/// Error returned when proof-of-work solving fails.
+#[derive(Debug, Clone, Copy)]
+pub enum PowError {
+    /// The requested difficulty exceeds the client-side maximum.
+    DifficultyTooHigh {
+        /// The difficulty that was requested.
+        requested: u8,
+        /// The maximum allowed difficulty.
+        max: u8,
+    },
+    /// The iteration limit was reached without finding a valid nonce.
+    ExceededMaxIterations,
+}
+
+impl fmt::Display for PowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DifficultyTooHigh { requested, max } => {
+                write!(
+                    f,
+                    "PoW difficulty {requested} exceeds client maximum of {max}"
+                )
+            }
+            Self::ExceededMaxIterations => {
+                write!(f, "PoW solver exceeded maximum iterations")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PowError {}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+/// Maximum PoW difficulty the client will attempt to solve.
+/// Difficulty 24 requires ~16M hashes on average (~65ms at 250MH/s).
+pub const MAX_CLIENT_POW_DIFFICULTY: u8 = 24;
+
+/// Maximum iterations before the PoW solver gives up.
+/// 2^28 = 268,435,456 iterations (~1 second at 250MH/s).
+pub const MAX_POW_ITERATIONS: u64 = 1 << 28;
+
+// ── Admission signatures ─────────────────────────────────────────────────────
 
 /// Signs an admission response: `Ed25519(challenge ‖ timestamp)`.
 ///
@@ -20,7 +79,7 @@ use sha2::{Digest, Sha256};
 /// use arp_common::crypto;
 ///
 /// let key = SigningKey::from_bytes(&[1u8; 32]);
-/// let sig = crypto::sign_admission(&key, &[0xAB; 32], crypto::unix_now());
+/// let sig = crypto::sign_admission(&key, &[0xAB; 32], crypto::unix_now().unwrap());
 /// assert_eq!(sig.len(), 64);
 /// ```
 #[must_use]
@@ -44,7 +103,7 @@ pub fn sign_admission(signing_key: &SigningKey, challenge: &[u8; 32], timestamp:
 ///
 /// let key = SigningKey::from_bytes(&[1u8; 32]);
 /// let challenge = [0xAB; 32];
-/// let ts = crypto::unix_now();
+/// let ts = crypto::unix_now().unwrap();
 /// let sig = crypto::sign_admission(&key, &challenge, ts);
 /// assert!(crypto::verify_admission(&key.verifying_key(), &challenge, ts, &sig));
 /// ```
@@ -65,21 +124,23 @@ pub fn verify_admission(
 
 /// Returns the current Unix timestamp in seconds.
 ///
-/// Returns 0 if the system clock is before the Unix epoch (indicates
-/// a misconfigured system clock). Callers should handle this case.
+/// # Errors
+///
+/// Returns [`ClockError`] if the system clock is before the Unix epoch,
+/// indicating a misconfigured system. Callers must handle this case
+/// explicitly rather than silently using a fallback value.
 ///
 /// # Examples
 ///
 /// ```
-/// let now = arp_common::crypto::unix_now();
+/// let now = arp_common::crypto::unix_now().unwrap();
 /// assert!(now > 1_700_000_000);
 /// ```
-#[must_use]
-pub fn unix_now() -> u64 {
+pub fn unix_now() -> Result<u64, ClockError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_err(|_| ClockError)
 }
 
 // ── Proof-of-Work ────────────────────────────────────────────────────────────
@@ -114,7 +175,15 @@ pub fn pow_verify(
 }
 
 /// Brute-force searches for an 8-byte nonce that satisfies the given
-/// difficulty. Panics if `difficulty > 64` (impossible with SHA-256).
+/// difficulty. Returns an error if the difficulty exceeds
+/// [`MAX_CLIENT_POW_DIFFICULTY`] or if [`MAX_POW_ITERATIONS`] is reached
+/// without finding a valid nonce.
+///
+/// # Errors
+///
+/// Returns [`PowError::DifficultyTooHigh`] if `difficulty` exceeds the
+/// client-side cap, or [`PowError::ExceededMaxIterations`] if the solver
+/// runs out of iterations.
 ///
 /// # Examples
 ///
@@ -123,37 +192,48 @@ pub fn pow_verify(
 ///
 /// let challenge = [0xABu8; 32];
 /// let pubkey = [1u8; 32];
-/// let ts = crypto::unix_now();
-/// let nonce = crypto::pow_solve(&challenge, &pubkey, ts, 8);
+/// let ts = crypto::unix_now().unwrap();
+/// let nonce = crypto::pow_solve(&challenge, &pubkey, ts, 8).unwrap();
 /// assert!(crypto::pow_verify(&challenge, &pubkey, ts, &nonce, 8));
 /// ```
-#[must_use]
-pub fn pow_solve(challenge: &[u8; 32], pubkey: &Pubkey, timestamp: u64, difficulty: u8) -> [u8; 8] {
-    assert!(difficulty <= 64, "difficulty must be <= 64");
+pub fn pow_solve(
+    challenge: &[u8; 32],
+    pubkey: &Pubkey,
+    timestamp: u64,
+    difficulty: u8,
+) -> Result<[u8; 8], PowError> {
+    if difficulty > MAX_CLIENT_POW_DIFFICULTY {
+        return Err(PowError::DifficultyTooHigh {
+            requested: difficulty,
+            max: MAX_CLIENT_POW_DIFFICULTY,
+        });
+    }
     if difficulty == 0 {
-        return [0u8; 8];
+        return Ok([0u8; 8]);
     }
     let mut nonce = [0u8; 8];
-    loop {
+    for _ in 0..MAX_POW_ITERATIONS {
         if pow_hash(challenge, pubkey, timestamp, &nonce) >= u32::from(difficulty) {
-            return nonce;
+            return Ok(nonce);
         }
-        // Increment nonce as little-endian u64
         let val = u64::from_le_bytes(nonce).wrapping_add(1);
         nonce = val.to_le_bytes();
     }
+    Err(PowError::ExceededMaxIterations)
 }
 
-/// Counts leading zero bits in a byte slice.
+/// Counts leading zero bits in a byte slice (constant-time).
+///
+/// Processes all bytes regardless of content to avoid timing side-channels.
 fn leading_zero_bits(data: &[u8]) -> u32 {
     let mut count = 0u32;
+    let mut found_nonzero = 0u32;
     for &byte in data {
-        if byte == 0 {
-            count += 8;
-        } else {
-            count += byte.leading_zeros();
-            break;
-        }
+        let is_zero = u32::from(byte == 0);
+        let lz = byte.leading_zeros();
+        let contribution = (1 - found_nonzero) * (is_zero * 8 + (1 - is_zero) * lz);
+        count += contribution;
+        found_nonzero |= 1 - is_zero;
     }
     count
 }
@@ -166,7 +246,7 @@ mod tests {
     fn sign_and_verify_round_trip() {
         let key = SigningKey::from_bytes(&[42u8; 32]);
         let challenge = [0xABu8; 32];
-        let ts = unix_now();
+        let ts = unix_now().unwrap();
         let sig = sign_admission(&key, &challenge, ts);
         assert!(verify_admission(&key.verifying_key(), &challenge, ts, &sig));
     }
@@ -174,7 +254,7 @@ mod tests {
     #[test]
     fn wrong_challenge_fails_verification() {
         let key = SigningKey::from_bytes(&[42u8; 32]);
-        let ts = unix_now();
+        let ts = unix_now().unwrap();
         let sig = sign_admission(&key, &[0xAB; 32], ts);
         assert!(!verify_admission(
             &key.verifying_key(),
@@ -188,7 +268,7 @@ mod tests {
     fn wrong_timestamp_fails_verification() {
         let key = SigningKey::from_bytes(&[42u8; 32]);
         let challenge = [0xABu8; 32];
-        let ts = unix_now();
+        let ts = unix_now().unwrap();
         let sig = sign_admission(&key, &challenge, ts);
         assert!(!verify_admission(
             &key.verifying_key(),
@@ -203,7 +283,7 @@ mod tests {
         let key = SigningKey::from_bytes(&[42u8; 32]);
         let other = SigningKey::from_bytes(&[99u8; 32]);
         let challenge = [0xABu8; 32];
-        let ts = unix_now();
+        let ts = unix_now().unwrap();
         let sig = sign_admission(&key, &challenge, ts);
         assert!(!verify_admission(
             &other.verifying_key(),
@@ -215,7 +295,7 @@ mod tests {
 
     #[test]
     fn unix_now_is_reasonable() {
-        let now = unix_now();
+        let now = unix_now().unwrap();
         assert!(now > 1_704_067_200, "timestamp should be after 2024-01-01");
     }
 
@@ -231,11 +311,16 @@ mod tests {
     }
 
     #[test]
+    fn leading_zero_bits_empty_input() {
+        assert_eq!(super::leading_zero_bits(&[]), 0);
+    }
+
+    #[test]
     fn pow_solve_and_verify_round_trip() {
         let challenge = [0xABu8; 32];
         let pubkey = [1u8; 32];
-        let ts = unix_now();
-        let nonce = pow_solve(&challenge, &pubkey, ts, 8);
+        let ts = unix_now().unwrap();
+        let nonce = pow_solve(&challenge, &pubkey, ts, 8).unwrap();
         assert!(pow_verify(&challenge, &pubkey, ts, &nonce, 8));
     }
 
@@ -251,8 +336,8 @@ mod tests {
     fn pow_wrong_nonce_fails() {
         let challenge = [0xABu8; 32];
         let pubkey = [1u8; 32];
-        let ts = unix_now();
-        let nonce = pow_solve(&challenge, &pubkey, ts, 12);
+        let ts = unix_now().unwrap();
+        let nonce = pow_solve(&challenge, &pubkey, ts, 12).unwrap();
         // Flip a bit in the nonce — overwhelmingly likely to fail
         let mut bad_nonce = nonce;
         bad_nonce[0] ^= 0xFF;
@@ -265,13 +350,26 @@ mod tests {
 
     #[test]
     fn pow_solve_difficulty_zero_returns_zeroes() {
-        let nonce = pow_solve(&[0; 32], &[0; 32], 0, 0);
+        let nonce = pow_solve(&[0; 32], &[0; 32], 0, 0).unwrap();
         assert_eq!(nonce, [0u8; 8]);
     }
 
     #[test]
-    #[should_panic(expected = "difficulty must be <= 64")]
-    fn pow_solve_panics_on_impossible_difficulty() {
-        let _ = pow_solve(&[0; 32], &[0; 32], 0, 65);
+    fn pow_solve_rejects_excessive_difficulty() {
+        let result = pow_solve(&[0; 32], &[0; 32], 0, MAX_CLIENT_POW_DIFFICULTY + 1);
+        assert!(matches!(result, Err(PowError::DifficultyTooHigh { .. })));
+    }
+
+    #[test]
+    #[ignore] // ~16M SHA-256 hashes; too slow in debug. Run: cargo test -- --ignored
+    fn pow_solve_accepts_max_client_difficulty() {
+        // MAX_CLIENT_POW_DIFFICULTY (24) should be accepted and solvable
+        // within MAX_POW_ITERATIONS. With random-ish inputs, difficulty 24
+        // needs ~16M hashes on average, well within 2^28.
+        let challenge = [0xABu8; 32];
+        let pubkey = [1u8; 32];
+        let ts = unix_now().unwrap();
+        let result = pow_solve(&challenge, &pubkey, ts, MAX_CLIENT_POW_DIFFICULTY);
+        assert!(result.is_ok());
     }
 }
