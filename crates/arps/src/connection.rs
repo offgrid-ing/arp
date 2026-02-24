@@ -21,6 +21,7 @@ use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
+use tokio::io::AsyncWriteExt;
 
 type WsSink = SplitSink<WebSocketStream<TcpStream>, Message>;
 type WsRecv = SplitStream<WebSocketStream<TcpStream>>;
@@ -173,7 +174,7 @@ async fn run_message_loop(
 }
 
 pub async fn handle_connection(
-    stream: TcpStream,
+    mut stream: TcpStream,
     peer_addr: SocketAddr,
     state: Arc<ServerState>,
 ) -> Result<(), ArpsError> {
@@ -183,6 +184,32 @@ pub async fn handle_connection(
         tracing::debug!("pre-auth semaphore closed");
         ArpsError::ConnectionClosed
     })?;
+
+    // Detect plain HTTP requests (e.g., browser visits) and redirect to landing page.
+    // The relay only speaks WebSocket; browsers hitting the URL see a 502 from Cloudflare
+    // unless we send a proper HTTP response.
+    {
+        let mut peek_buf = [0u8; 4096];
+        if let Ok(n) = stream.peek(&mut peek_buf).await {
+            if let Ok(preview) = std::str::from_utf8(&peek_buf[..n]) {
+                let is_http = preview.starts_with("GET ")
+                    || preview.starts_with("HEAD ")
+                    || preview.starts_with("POST ");
+                if is_http && !preview.to_ascii_lowercase().contains("upgrade: websocket") {
+                    let _ = stream
+                        .write_all(
+                            b"HTTP/1.1 301 Moved Permanently\r\n\
+                              Location: https://arp.offgrid.ing/\r\n\
+                              Content-Length: 0\r\n\
+                              Connection: close\r\n\
+                              \r\n",
+                        )
+                        .await;
+                    return Ok(());
+                }
+            }
+        }
+    }
 
     let ws_config = WebSocketConfig {
         max_message_size: Some(33 + 65535),
