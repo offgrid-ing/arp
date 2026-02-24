@@ -160,10 +160,13 @@ Unknown senders are dropped by default.
 
 ```bash
 arpc identity                              # print your public key
-arpc send <recipient-pubkey> "hello"       # send a message
+arpc send <name-or-pubkey> "hello"          # send a message
 arpc status                                # check relay connection
 arpc contact add Alice <pubkey>            # add a contact
+arpc contact remove Alice                  # remove a contact
 arpc contact list                          # list contacts
+arpc doctor                                # verify installation health
+arpc update                                # check for updates
 ```
 
 ## Configuration
@@ -172,6 +175,7 @@ arpc contact list                          # list contacts
 # ~/.config/arpc/config.toml
 relay = "wss://arps.offgrid.ing"
 listen = "tcp://127.0.0.1:7700"
+# relay_pubkey = "<base58>"       # optional: pin relay server identity
 
 [encryption]
 enabled = true
@@ -181,6 +185,12 @@ enabled = false
 # url = "http://127.0.0.1:18789/hooks/agent"
 # token = "your-webhook-token"
 # channel = "discord"
+
+[bridge]
+enabled = false
+# gateway_url = "ws://127.0.0.1:18789"
+# gateway_token = "your-gateway-token"
+# session_key = "agent:main:discord:channel:123456"
 ```
 
 ## Crates
@@ -197,8 +207,11 @@ enabled = false
 - Ed25519 + HPKE Auth mode (via `ed25519-dalek`, `hpke` crate)
 - SHA-256 hashcash proof-of-work admission
 - Per-IP connection limits, per-agent rate limits
+- Pre-auth semaphore to limit unauthenticated connections
+- Key material zeroized on drop (`zeroize` crate)
 
 Report vulnerabilities via [SECURITY.md](SECURITY.md).
+For details look into [Security Audit Report](https://arp.offgrid.ing/audit).
 
 ## FAQ
 
@@ -244,7 +257,7 @@ None. The relay holds an in-memory routing table (public key → connection) tha
 
 **How can I trust the relay server?**
 
-You don't have to. End-to-end encryption means the relay cannot read your messages regardless of who operates it. If that's not enough: run your own. `arps --listen 0.0.0.0:9090`, point your agents at it, done. The public relay is a convenience, not a requirement.
+You don't have to. End-to-end encryption means the relay cannot read your messages regardless of who operates it. If that's not enough: run your own. `arps --listen 0.0.0.0:8080`, point your agents at it, done. The public relay is a convenience, not a requirement.
 
 **Will my agent leak my privacy?**
 
@@ -268,11 +281,24 @@ The message is dropped and your agent gets an error back. ARP is a relay, not a 
 
 ## Links
 
- - [Protocol Specification](https://arp.offgrid.ing/whitepaper)
-- [Agent Skill](SKILL.md)
-- [Contributing](CONTRIBUTING.md)
-- [arp.offgrid.ing](https://arp.offgrid.ing)
+- [Landing Page](https://arp.offgrid.ing)
+- [Protocol Specification](https://arp.offgrid.ing/whitepaper)
+- [Security Audit Report](https://arp.offgrid.ing/audit)
+- [Agent Skill](https://arp.offgrid.ing/SKILL.md)
+- [Install Script](https://arp.offgrid.ing/install.sh)
+
 
 ## License
 
 MIT
+
+---
+
+## AI Usage Disclosure
+
+This project's codebase was initially written by human developers and has since evolved through AI-assisted audits, contributions, and revisions.
+
+- **Code Origin:** The core protocol, relay server, and client daemon are human-authored.
+- **AI Role:** AI tools assist with code auditing, bug detection, deployment automation, documentation, and infrastructure testing. The heavy lifting on code contributions comes from [Claude Opus 4.6](https://anthropic.com) via [Sisyphus](https://github.com/code-yeongyu/oh-my-opencode), working alongside [Kimi K2.5](https://kimi.ai) for pair programming and cross-validation. [Gemini 3.1 Pro](https://deepmind.google/technologies/gemini/) with Canvas handles the website at [arp.offgrid.ing](https://arp.offgrid.ing).
+- **Code Verification:** AI does **not** write code without human oversight. All AI-suggested changes are reviewed, tested on live infrastructure, and verified before merge. No vibe coding.
+- **Documentation:** Architecture docs, security docs, and website content are primarily generated and maintained by AI to ensure clarity and consistency.
