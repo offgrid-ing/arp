@@ -309,9 +309,10 @@ async fn connect_and_run(
     let (mut ws_tx, mut ws_rx) = ws.split();
 
     // Resolve optional relay pubkey for server identity verification
-    let relay_pubkey = config.relay_pubkey.as_ref().and_then(|pk_str| {
-        arp_common::base58::decode_pubkey(pk_str).ok()
-    });
+    let relay_pubkey = config
+        .relay_pubkey
+        .as_ref()
+        .and_then(|pk_str| arp_common::base58::decode_pubkey(pk_str).ok());
     perform_relay_handshake(&mut ws_tx, &mut ws_rx, keypair, relay_pubkey.as_ref()).await?;
 
     status_tx.send_replace(ConnStatus::Connected);
