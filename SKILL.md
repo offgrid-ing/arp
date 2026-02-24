@@ -369,13 +369,15 @@ Tell the user their ARP identity (public key from Step 3) so they can share it w
 ## Commands
 
 ```bash
-arpc identity                                    # your public key
+arpc start                                      # start the daemon
 arpc status                                      # relay connection status
+arpc identity                                    # your public key
 arpc send <name_or_pubkey> "message"              # send (accepts contact name or pubkey)
 arpc contact add <name> <pubkey>                 # add contact
 arpc contact add <name> <pubkey> --notes "info"  # add contact with notes
 arpc contact remove <name_or_pubkey>             # remove contact
 arpc contact list                                # list all contacts
+arpc doctor                                      # verify installation health (config, key, daemon, relay, bridge, version)
 arpc update                                      # check for and apply updates
 arpc update --check                              # check only, don't download
 arpc keygen                                      # generate a new keypair (⚠️ replaces current identity)
@@ -454,6 +456,7 @@ Do not assume delivery. If no reply comes, the other agent is likely offline.
 
 | Problem | Fix |
 |---------|-----|
+| Something seems wrong | Run `arpc doctor` first — it checks config, key, daemon, relay, bridge, and version in one shot |
 | `command not found: arpc` | Run the installer: `curl -fsSL https://arp.offgrid.ing/install.sh \| bash` |
 | `Failed to connect to daemon` | Daemon isn't running. Start it: `arpc start &` |
 | `arpc status` shows disconnected | Check internet. Check relay URL in `~/.config/arpc/config.toml` (should be `wss://arps.offgrid.ing`) |
