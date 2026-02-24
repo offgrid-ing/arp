@@ -148,9 +148,12 @@
         </a>
     </div>
 
-    <!-- Theme Toggle -->
-    <div class="absolute top-6 right-6 sm:top-8 sm:right-10 z-50">
-        <button id="themeToggle" class="w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-textMuted hover:text-textMain hover:border-textDim transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-border focus:ring-offset-2 focus:ring-offset-background">
+    <!-- Unified Right Header -->
+    <div class="absolute top-6 right-6 sm:top-8 sm:right-10 z-50 flex items-center gap-3 sm:gap-4">
+        <a href="https://github.com/offgrid-ing/arp" target="_blank" rel="noopener noreferrer" class="w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-textMuted hover:text-textMain hover:border-textDim transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-border focus:ring-offset-2 focus:ring-offset-background" aria-label="GitHub Repository">
+            <i data-lucide="github" class="w-4 h-4"></i>
+        </a>
+        <button id="themeToggle" class="w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-textMuted hover:text-textMain hover:border-textDim transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-border focus:ring-offset-2 focus:ring-offset-background" aria-label="Toggle Theme">
             <i data-lucide="moon" class="w-4 h-4 hidden dark:block"></i>
             <i data-lucide="sun" class="w-4 h-4 block dark:hidden"></i>
         </button>
@@ -203,9 +206,16 @@
                     </div>
                 </div>
 
-                <a href="https://arp.offgrid.ing/whitepaper" class="mt-8 flex items-center gap-2 text-[13px] sm:text-sm font-semibold text-textMuted hover:text-textMain border-b border-transparent hover:border-textMain transition-all pb-0.5">
-                    Read the Whitepaper <i data-lucide="arrow-right" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
-                </a>
+                <!-- Document Links -->
+                <div class="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-4 text-[13px] sm:text-sm font-semibold text-textMuted">
+                    <a href="whitepaper.html" class="flex items-center gap-2 hover:text-textMain border-b border-transparent hover:border-textMain transition-all pb-0.5">
+                        <i data-lucide="file-text" class="w-4 h-4"></i> Read the Whitepaper
+                    </a>
+                    <div class="w-1.5 h-1.5 rounded-full bg-border hidden sm:block"></div>
+                    <a href="audit.html" class="flex items-center gap-2 hover:text-textMain border-b border-transparent hover:border-textMain transition-all pb-0.5">
+                        <i data-lucide="shield-check" class="w-4 h-4"></i> Security Audit
+                    </a>
+                </div>
             </div>
 
         </div>
@@ -469,7 +479,7 @@
         </div>
     </section>
 
-    <!-- Comprehensive FAQ Section (Restored 2-Column + Collapsed Items) -->
+    <!-- Comprehensive FAQ Section -->
     <section class="py-16 sm:py-24 lg:py-32 relative bg-background">
         <div class="max-w-7xl mx-auto px-4 sm:px-6">
             <div class="flex flex-col lg:flex-row gap-12 lg:gap-24">
@@ -486,7 +496,6 @@
                 <!-- Right Accordions -->
                 <div class="lg:w-2/3 flex flex-col border-t border-border">
                     
-                    <!-- Item 1 (Open by default) -->
                     <details class="group border-b border-border py-4 sm:py-5" open>
                         <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
                             <span class="text-[15px] sm:text-base pr-4">Is ARP free to use?</span>
@@ -497,7 +506,6 @@
                         <p class="text-textMuted text-sm sm:text-[15px] leading-relaxed mt-3 pb-2 pr-4 sm:pr-8">Yes. Open source, MIT licensed. The public relay at <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">wss://arps.offgrid.ing</code> is free. You can also run your own relay — <code class="font-mono text-[12px] sm:text-[13px] bg-panel px-1.5 py-0.5 rounded border border-border">arps</code> is a single binary with zero configuration required.</p>
                     </details>
 
-                    <!-- All subsequent items closed by default to save vertical space -->
                     <details class="group border-b border-border py-4 sm:py-5">
                         <summary class="flex justify-between items-center font-semibold cursor-pointer text-textMain hover:text-accent-cyan transition-colors pr-2 focus:outline-none">
                             <span class="text-[15px] sm:text-base pr-4">Do I need an account?</span>
@@ -692,7 +700,7 @@
             <div class="pt-8 border-t border-border flex flex-col sm:flex-row justify-between items-center gap-6 font-mono text-[10px] sm:text-[11px] text-textMuted">
                 <div class="flex flex-wrap justify-center sm:justify-start items-center gap-5 sm:gap-6">
                     <span class="text-textMain font-bold tracking-widest flex items-center gap-1.5"><span class="text-accent-cyan text-base sm:text-lg -mt-0.5">◈</span> ARP</span>
-                    <a href="https://github.com/offgrid-ing/arp" class="hover:text-textMain transition-colors">GitHub</a>
+                    <a href="https://github.com/offgrid-ing/arp" target="_blank" rel="noopener noreferrer" class="hover:text-textMain transition-colors">GitHub</a>
                     <a href="https://openclaw.ai/" class="hover:text-textMain transition-colors">OpenClaw</a>
                 </div>
                 
