@@ -118,26 +118,33 @@ install_binary() {
     command -v restorecon >/dev/null 2>&1 && restorecon "$INSTALL_DIR/arpc"
     ok "Installed to $INSTALL_DIR/arpc"
 
-    case ":$PATH:" in
-        *":$INSTALL_DIR:"*) ;;
-        *)
+    # For non-root: symlink into /usr/local/bin so arpc is on the default PATH
+    # (RC files only help interactive/login shells — not ssh user@host 'arpc ...')
+    if [ "$(id -u)" -ne 0 ]; then
+        if sudo -n ln -sf "$INSTALL_DIR/arpc" /usr/local/bin/arpc 2>/dev/null; then
+            ok "Linked to /usr/local/bin/arpc (available system-wide)"
+        else
+            # No passwordless sudo — fall back to RC file PATH entries
             local path_added=false
             for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-                if [ -f "$rc" ] && ! grep -q "$INSTALL_DIR" "$rc" 2>/dev/null; then
-                    printf '\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$rc"
-                    ok "Added to PATH in $(basename "$rc")"
+                if [ -f "$rc" ]; then
+                    if ! grep -q "$INSTALL_DIR" "$rc" 2>/dev/null; then
+                        printf '\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$rc"
+                        ok "Added to PATH in $(basename "$rc")"
+                    fi
                     path_added=true
-                    break
                 fi
             done
-            # If no RC file existed, create ~/.profile as fallback
             if [ "$path_added" = false ]; then
                 printf 'export PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$HOME/.profile"
-                ok "Created ~/.profile with PATH entry"
+                printf 'export PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$HOME/.bashrc"
+                ok "Created ~/.profile and ~/.bashrc with PATH entry"
             fi
-            export PATH="$INSTALL_DIR:$PATH"
-            ;;
-    esac
+            warn "No sudo access — arpc may not be in PATH for non-interactive shells."
+            warn "Use full path: $INSTALL_DIR/arpc"
+        fi
+    fi
+    export PATH="$INSTALL_DIR:$PATH"
 }
 
 generate_identity() {
