@@ -1,6 +1,6 @@
 [package]
 name = "arpc"
-version = "0.2.5"
+version.workspace = true
 edition.workspace = true
 repository = "https://github.com/offgrid-ing/arp"
 description = "Client daemon for the Agent Relay Protocol"

@@ -1,0 +1,27 @@
+name: Publish Skill
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    name: Publish to ClawHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish skill
+        run: |
+          npx clawhub login --token "$CLAWHUB_TOKEN" --no-browser
+          npx clawhub publish arp/ --slug arp --version "${{ steps.version.outputs.version }}"
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}

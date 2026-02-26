@@ -1,6 +1,6 @@
 [package]
 name = "arps"
-version = "0.2.5"
+version.workspace = true
 edition.workspace = true
 repository = "https://github.com/offgrid-ing/arp"
 description = "Relay server for the Agent Relay Protocol"
