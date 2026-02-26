@@ -15,8 +15,8 @@ echo "Bumping to v$VERSION"
 sed -i.bak -E "s/^(version = \").*(\")/\1$VERSION\2/" Cargo.toml
 rm -f Cargo.toml.bak
 
-# 2. SKILL.md frontmatter (both root and arp/)
-for f in SKILL.md arp/SKILL.md; do
+# 2. SKILL.md frontmatter (both root and arpc/)
+for f in SKILL.md arpc/SKILL.md; do
   if [ -f "$f" ]; then
     sed -i.bak -E "s/^(  version: ).*/\1$VERSION/" "$f"
     rm -f "$f.bak"
@@ -30,7 +30,7 @@ echo ""
 echo "Updated:"
 echo "  Cargo.toml          → $VERSION"
 echo "  SKILL.md            → $VERSION"
-echo "  arp/SKILL.md        → $VERSION"
+echo "  arpc/SKILL.md       → $VERSION"
 echo "  Cargo.lock          → synced"
 echo ""
 

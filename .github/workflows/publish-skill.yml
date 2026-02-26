@@ -22,6 +22,6 @@ jobs:
       - name: Publish skill
         run: |
           npx clawhub login --token "$CLAWHUB_TOKEN" --no-browser
-          npx clawhub publish arp/ --slug arp --version "${{ steps.version.outputs.version }}"
+          npx clawhub publish arpc/ --slug arpc --version "${{ steps.version.outputs.version }}"
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
