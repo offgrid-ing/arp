@@ -96,7 +96,7 @@ jobs:
             shasum -a 256 ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.binary }}
           path: |
@@ -147,7 +147,7 @@ jobs:
           cp target/${{ matrix.target }}/release/arps ${{ matrix.binary }}
           sha256sum ${{ matrix.binary }} > ${{ matrix.binary }}.sha256
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.binary }}
           path: |
