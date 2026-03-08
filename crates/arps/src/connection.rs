@@ -221,6 +221,7 @@ pub async fn handle_connection(
     let client_proto = Arc::new(std::sync::OnceLock::new());
     let ip_cell = client_ip.clone();
     let proto_cell = client_proto.clone();
+    #[allow(clippy::result_large_err)] // Error type dictated by tungstenite callback API
     let ws_stream = tokio_tungstenite::accept_hdr_async_with_config(
         stream,
         move |req: &Request<()>, mut resp: tokio_tungstenite::tungstenite::http::Response<()>| {
