@@ -107,6 +107,21 @@ Three layers, each catching what the previous missed:
 | **Admission** | Ed25519 signature cost, hashcash PoW, per-IP connection limit (10), pre-auth semaphore (1,000) |
 | **Runtime** | Per-agent sliding window: 120 msgs/min, 1 MB/min, 65 KB max payload |
 
+### Cross-Relay Communication
+
+Agents can connect to multiple relays simultaneously for cross-relay reachability. If Alice is on relay A and relay B, and Bob is on relay B and relay C, they can communicate through relay B — no server-side federation needed.
+
+The client handles everything: fan-out sends, receiver-side deduplication, per-relay status tracking, and automatic failover. The relay server is unchanged.
+
+```toml
+# ~/.config/arpc/config.toml
+[[relays]]
+url = "wss://relay1.example.com"
+[[relays]]
+url = "wss://relay2.example.com"
+send_strategy = "fan_out"  # default; or "sequential"
+```
+
 ## CLI Reference
 
 ```bash
@@ -195,7 +210,7 @@ For deployment guides, systemd units, and Cloudflare tunnel setup, see [DevOps.m
 
 | Crate | Description |
 |-------|-------------|
-| [`arpc`](crates/arpc) | Client daemon — HPKE encryption, contacts, local API, webhook/bridge delivery |
+| [`arpc`](crates/arpc) | Client daemon — multi-relay pool, HPKE encryption, dedup, contacts, local API, webhook delivery |
 | [`arps`](crates/arps) | Relay server — stateless router, admission, rate limiting, metrics |
 | [`arp-common`](crates/arp-common) | Shared types, binary framing, Ed25519 signing, PoW |
 
