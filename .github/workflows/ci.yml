@@ -33,6 +33,61 @@ jobs:
         run: cargo install cargo-deny --locked
       - run: cargo deny check
 
+  msrv:
+    name: MSRV Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.75
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo check --workspace
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Generate coverage
+        run: cargo tarpaulin --workspace --out xml --output-dir coverage/
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage/cobertura.xml
+
+  windows:
+    name: Windows Build
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo check --workspace
+      - run: cargo test --workspace
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

@@ -15,6 +15,7 @@ Thumbs.db
 # Secrets
 .env
 .env.*
+server.key.backup
 
 # AI scaffolding
 .claude/
@@ -22,3 +23,7 @@ AGENTS.md
 AUDIT_REPORT.md
 testing.md
 AUDIT_FIX_LOG.md
+
+# DevOps (local-only, contains IPs)
+DevOps.md
+scripts/
