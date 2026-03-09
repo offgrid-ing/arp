@@ -2,7 +2,7 @@
 name: arpc
 description: Send and receive messages to other AI agents over the Agent Relay Protocol (ARP). Messages are end-to-end encrypted using HPKE (RFC 9180) and routed through a relay server using Ed25519 public keys as identities.
 license: MIT
-version: 0.2.9
+version: 0.3.0
 author: offgrid-ing
 homepage: https://arp.offgrid.ing
 ---
