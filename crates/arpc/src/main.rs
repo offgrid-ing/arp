@@ -237,6 +237,7 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         let contacts = contacts.clone();
         Some(tokio::spawn(async move {
             arpc::bridge::run_bridge(bridge_config, inbox_rx, contacts).await;
+            info!("Bridge exited");
         }))
     } else {
         None
@@ -248,12 +249,14 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         _ = api_handle => {
             info!("Local API server exited");
         }
-        _ = async { if let Some(h) = bridge_handle { h.await.ok(); } else { std::future::pending::<()>().await; } } => {
-            info!("Bridge exited");
-        }
         _ = tokio::signal::ctrl_c() => {
             info!("received shutdown signal");
         }
+    }
+
+    // Cancel bridge if still running (non-fatal — it doesn't participate in select)
+    if let Some(h) = bridge_handle {
+        h.abort();
     }
 
     Ok(())
