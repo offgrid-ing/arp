@@ -8,6 +8,7 @@ pub mod config;
 mod connection;
 /// Error types for relay server operations.
 pub mod error;
+mod message_loop;
 /// Prometheus metrics collection and HTTP endpoint.
 pub mod metrics;
 mod ratelimit;
