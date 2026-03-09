@@ -543,3 +543,98 @@ async fn test_direct_connection_uses_peer_addr() {
         other => panic!("expected Challenge frame, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn test_disconnect_during_admission() {
+    let (addr, state) = start_server().await;
+
+    // Connect WebSocket but drop before completing admission
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let url = format!("ws://{addr}");
+    let mut req = url.into_client_request().unwrap();
+    req.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        arp_common::types::PROTOCOL_VERSION.parse().unwrap(),
+    );
+    req.headers_mut()
+        .insert("CF-Connecting-IP", "127.0.0.1".parse().unwrap());
+    let (ws, _) = tokio_tungstenite::connect_async(req).await.unwrap();
+    let (mut _ws_tx, mut ws_rx) = ws.split();
+
+    // Receive the challenge but don't respond — just drop the connection
+    let _challenge = ws_rx.next().await;
+    drop(ws_rx);
+    drop(_ws_tx);
+
+    // Small delay for cleanup
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Server should still be functional — verify by connecting normally
+    let keypair = SigningKey::generate(&mut OsRng);
+    let _client = TestClient::connect(&addr, &keypair).await;
+    assert_eq!(state.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn test_rapid_connect_disconnect_cycle() {
+    let (addr, _state) = start_server().await;
+
+    // Rapidly connect and disconnect 10 clients
+    for _ in 0..10 {
+        let keypair = SigningKey::generate(&mut OsRng);
+        let client = TestClient::connect(&addr, &keypair).await;
+        drop(client);
+    }
+
+    // Small delay for cleanup
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Server should still accept connections after rapid cycling
+    let keypair = SigningKey::generate(&mut OsRng);
+    let _client = TestClient::connect(&addr, &keypair).await;
+}
+
+#[tokio::test]
+async fn test_rate_limiter_boundary_exact_limit() {
+    let msg_rate = 5u32;
+    let listen = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listen.local_addr().unwrap();
+    let config = test_config_with_params(addr, 1000, msg_rate, 5);
+    let state = Arc::new(ServerState {
+        router: Router::new(config.max_conns),
+        server_keypair: SigningKey::generate(&mut OsRng),
+        config,
+        ip_connections: dashmap::DashMap::new(),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+        pre_auth_semaphore: tokio::sync::Semaphore::new(1000),
+    });
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = arps::run(listen, state_clone).await {
+            eprintln!("server error: {e}");
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let keypair_a = SigningKey::generate(&mut OsRng);
+    let keypair_b = SigningKey::generate(&mut OsRng);
+    let mut sender = TestClient::connect(&addr, &keypair_a).await;
+    let mut receiver = TestClient::connect(&addr, &keypair_b).await;
+
+    // Send exactly msg_rate messages — all should succeed
+    for i in 0..msg_rate {
+        sender.send_message(&receiver.pubkey, format!("msg-{i}").as_bytes()).await;
+    }
+
+    // All messages should be delivered
+    for _ in 0..msg_rate {
+        let frame = receiver.recv_frame().await;
+        assert!(matches!(frame, Frame::Deliver { .. }), "expected delivery");
+    }
+
+    // The next message should trigger rate limiting
+    sender.send_message(&receiver.pubkey, b"over-limit").await;
+    // Sender should receive a status frame indicating rate limit
+    let status = sender.recv_frame().await;
+    assert!(matches!(status, Frame::Status { .. }), "expected rate limit status");
+}
