@@ -16,8 +16,10 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/arpc start
-Restart=always
+Restart=on-failure
 RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
 Environment=RUST_LOG=info
 # EnvironmentFile=/etc/default/arpc
 # Uncomment for dedicated service user:

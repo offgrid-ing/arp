@@ -4,7 +4,7 @@ use arpc::config::{load_config, Cli, Commands, ContactAction};
 use arpc::contacts::ContactStore;
 use arpc::keypair;
 use arpc::local_api;
-use arpc::relay::{relay_connection_manager, ConnStatus, DaemonStats, InboundMsg, OutboundMsg};
+use arpc::relay::{spawn_relay_pool, ConnStatus, DaemonStats, InboundMsg, OutboundMsg};
 
 use arp_common::base58;
 use base64::Engine;
@@ -95,7 +95,18 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         config.listen = listen.clone();
     }
     if let Some(ref relay_pubkey) = cli.relay_pubkey {
-        config.relay_pubkey = Some(relay_pubkey.clone());
+        if config.relays.is_empty() {
+            config.relay_pubkey = Some(relay_pubkey.clone());
+        }
+    }
+
+    if cli.relay.is_some() && !config.relays.is_empty() {
+        warn!("--relay flag ignored: config file has [[relays]] entries which take precedence");
+    }
+    if cli.relay_pubkey.is_some() && !config.relays.is_empty() {
+        warn!(
+            "--relay-pubkey flag ignored: config file has [[relays]] entries which take precedence"
+        );
     }
 
     config
@@ -118,7 +129,18 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
             "  {DIM}Identity{RESET}   {CYAN}{}{RESET}",
             base58::encode(&pubkey)
         );
-        eprintln!("  {DIM}Relay{RESET}      {}", config.relay);
+        let relays = config.normalized_relays();
+        if relays.len() == 1 {
+            eprintln!("  {DIM}Relay{RESET}      {}", relays[0].url);
+        } else {
+            for (i, r) in relays.iter().enumerate() {
+                if i == 0 {
+                    eprintln!("  {DIM}Relays{RESET}     {}", r.url);
+                } else {
+                    eprintln!("             {}", r.url);
+                }
+            }
+        }
         eprintln!("  {DIM}Listen{RESET}     {}", config.listen);
         if config.webhook.enabled {
             eprintln!(
@@ -173,19 +195,15 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
     let (status_tx, status_rx) = watch::channel(ConnStatus::Disconnected);
     let stats = Arc::new(DaemonStats::new());
 
-    let relay_handle = tokio::spawn({
-        let config = config.clone();
-        let inbox_tx = inbox_tx.clone();
-        let status_tx = status_tx.clone();
-        let contacts = contacts.clone();
-        let stats = stats.clone();
-        async move {
-            relay_connection_manager(
-                config, keypair, outbox_rx, inbox_tx, status_tx, contacts, stats,
-            )
-            .await;
-        }
-    });
+    let pool = spawn_relay_pool(
+        config.clone(),
+        keypair,
+        outbox_rx,
+        inbox_tx.clone(),
+        status_tx.clone(),
+        contacts.clone(),
+        stats.clone(),
+    );
 
     let api_handle = tokio::spawn({
         let listen = config.listen.clone();
@@ -194,9 +212,17 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         let status_rx = status_rx.clone();
         let contacts = contacts.clone();
         let stats = stats.clone();
+        let relay_statuses = pool.relay_status_receivers();
         async move {
             if let Err(e) = local_api::start_local_api(
-                &listen, outbox_tx, inbox_tx, status_rx, pubkey, contacts, stats,
+                &listen,
+                outbox_tx,
+                inbox_tx,
+                status_rx,
+                pubkey,
+                contacts,
+                stats,
+                relay_statuses,
             )
             .await
             {
@@ -216,8 +242,8 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         None
     };
     tokio::select! {
-        _ = relay_handle => {
-            info!("Relay connection manager exited");
+        _ = pool.coordinator_handle => {
+            info!("Relay coordinator exited");
         }
         _ = api_handle => {
             info!("Local API server exited");
@@ -306,8 +332,51 @@ fn fmt_status(json: &serde_json::Value, cli: &Cli) {
         println!("  {DIM}Identity{RESET}   {CYAN}{id}{RESET}");
     }
 
+    // Show per-relay status from daemon response (live connection status)
+    if let Some(relays) = json["relays"].as_array() {
+        if relays.len() == 1 {
+            let r = &relays[0];
+            let url = r["url"].as_str().unwrap_or("?");
+            let st = r["status"].as_str().unwrap_or("unknown");
+            let rdot = match st {
+                "connected" => format!("{GREEN}●{RESET}"),
+                "connecting" => format!("{YELLOW}●{RESET}"),
+                _ => format!("{RED}●{RESET}"),
+            };
+            println!("  {DIM}Relay{RESET}      {rdot} {url}");
+        } else {
+            for (i, r) in relays.iter().enumerate() {
+                let url = r["url"].as_str().unwrap_or("?");
+                let st = r["status"].as_str().unwrap_or("unknown");
+                let rdot = match st {
+                    "connected" => format!("{GREEN}●{RESET}"),
+                    "connecting" => format!("{YELLOW}●{RESET}"),
+                    _ => format!("{RED}●{RESET}"),
+                };
+                if i == 0 {
+                    println!("  {DIM}Relays{RESET}     {rdot} {url}");
+                } else {
+                    println!("             {rdot} {url}");
+                }
+            }
+        }
+    } else if let Some(ref cfg) = config {
+        // Fallback: show relay URLs from config without live status
+        let relays = cfg.normalized_relays();
+        if relays.len() == 1 {
+            println!("  {DIM}Relay{RESET}      {}", relays[0].url);
+        } else {
+            for (i, r) in relays.iter().enumerate() {
+                if i == 0 {
+                    println!("  {DIM}Relays{RESET}     {}", r.url);
+                } else {
+                    println!("             {}", r.url);
+                }
+            }
+        }
+    }
+
     if let Some(ref cfg) = config {
-        println!("  {DIM}Relay{RESET}      {}", cfg.relay);
         println!("  {DIM}Listen{RESET}     {}", cfg.listen);
 
         if cfg.bridge.enabled {
@@ -450,8 +519,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Start => run_daemon(&cli).await?,
 
         Commands::Identity => {
-            let key_path = dirs::config_dir()
-                .map_or_else(|| PathBuf::from("arpc.key"), |d| d.join("arpc").join("key"));
+            let key_path = resolve_data_path("key");
             let keypair = keypair::load_or_generate_keypair(&key_path)?;
             let pubkey: arp_common::Pubkey = keypair.verifying_key().to_bytes();
             println!("{}", base58::encode(&pubkey));
@@ -746,8 +814,25 @@ async fn main() -> anyhow::Result<()> {
 
             // 3. Daemon reachable
             let addr = daemon_addr(&cli);
-            match tokio::net::TcpStream::connect(addr.as_str()).await {
-                Ok(_) => {
+            let connect_result = if addr.starts_with('/') || addr.contains(".sock") {
+                #[cfg(unix)]
+                {
+                    tokio::net::UnixStream::connect(&addr).await.map(|_| ())
+                }
+                #[cfg(not(unix))]
+                {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "unix sockets not supported on this platform",
+                    ))
+                }
+            } else {
+                tokio::net::TcpStream::connect(addr.as_str())
+                    .await
+                    .map(|_| ())
+            };
+            match connect_result {
+                Ok(()) => {
                     if tty() {
                         println!("  {GREEN}\u{2713}{RESET} Daemon reachable {DIM}({addr}){RESET}");
                     } else {

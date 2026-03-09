@@ -40,6 +40,7 @@ ARP is a stateless WebSocket relay protocol for autonomous agent communication. 
 │       │   ├── hpke_seal.rs # HPKE Auth mode E2E encryption
 │       │   ├── local_api.rs # TCP/Unix socket JSON API
 │       │   ├── contacts.rs # Contact management
+│       │   ├── dedup.rs    # Message deduplication for multi-relay
 │       │   ├── keypair.rs  # Ed25519 key generation
 │       │   ├── backoff.rs  # Exponential backoff
 │       │   ├── webhook.rs  # HTTP push for inbound messages
@@ -220,19 +221,49 @@ Persistent WebSocket client with local JSON API.
 1. Load config (TOML file → env `ARPC_*` → CLI overrides)
 2. Load or generate Ed25519 keypair (`~/.config/arpc/key`)
 3. Start local API listener (TCP or Unix socket)
-4. Spawn relay connection manager
+4. Spawn relay connection pool (coordinator + N workers)
 5. Block on local API accept loop
 
 ### Relay Connection
 
-`relay.rs` — `relay_connection_manager()`:
+`relay.rs` — `spawn_relay_pool()`: Creates a multi-relay connection pool with a coordinator and N workers.
 
-- Maintains persistent WebSocket to relay
-- Exponential backoff on disconnect (`ExponentialBackoff` from `backoff.rs`)
-- Connection status: `Disconnected | Connecting | Connected` (watch channel)
-- Automatic reconnection with jitter
+**Coordinator Task** (`relay_coordinator`):
+- Receives `OutboundMsg` via channel from local API
+- Seals HPKE payload once ( Auth mode encryption)
+- Builds ROUTE frame with encrypted payload
+- Fans out to all worker channels via `try_send()` (non-blocking)
+- Collects STATUS responses from workers with 5s timeout
+- Aggregates status: `DELIVERED > RATE_LIMITED > OVERSIZE > OFFLINE > timeout`
+- Returns first successful result to caller
 
-`perform_relay_handshake()` handles admission:
+**N Worker Tasks** (`relay_worker` + `relay_worker_connection`):
+- Each worker manages one persistent WebSocket to a single relay
+- Independent exponential backoff with jitter per relay
+- Independent keepalive/ping handling per connection
+- Receives pre-built ROUTE commands from coordinator via channel
+- Sends STATUS reports back to coordinator via reply channel
+- Handles incoming DELIVER frames, uses shared deduplicator
+
+**`RelayPool` Struct**: Returned by `spawn_relay_pool()`, holds:
+- Coordinator handle (mpsc channel for outgoing messages)
+- Worker join handles (for graceful shutdown)
+- Per-relay status receivers (watch channels for connection state)
+
+**Send Strategies**:
+- **Fan-out mode** (default): Non-blocking `try_send()` to all relay channels simultaneously. First `DELIVERED` resolves immediately.
+- **Sequential mode**: Tries relays one by one until `DELIVERED` or all exhausted.
+
+**Deduplication**: Shared `Arc<Mutex<Deduplicator>>` across all workers for receiver-side dedup:
+- Fast-path check before HPKE decrypt (rejects duplicates early)
+- Insert after successful decrypt (prevents cache poisoning from malicious payloads)
+
+**Aggregate Connection Status**:
+- `Connected`: If ANY relay is connected
+- `Connecting`: If any relay is connecting (and none connected)
+- `Disconnected`: If ALL relays are disconnected
+
+`perform_relay_handshake()` handles admission per relay:
 1. Receive Challenge frame
 2. Sign `challenge ‖ timestamp`
 3. Solve PoW if difficulty > 0
@@ -251,8 +282,8 @@ Stateless per-message encryption (no sessions, no handshake state):
  Each message encrypted independently with fresh ephemeral key
  Authenticated sender identity via Auth mode (sender's static X25519 key)
  No LRU cache, no session table, no eviction logic
-Message prefixes:
- `0x00` — plaintext
+Message prefixes (protocol-defined; receiver dispatches via `encryption.enabled` config flag, not prefix inspection):
+ `0x00` — plaintext (raw bytes; no prefix prepended when encryption disabled)
  `0x04` — HPKE Auth encrypted (X25519 ephemeral | encrypted payload | auth tag)
 
 ### Local JSON API
@@ -294,8 +325,20 @@ Commands (see full reference below).
 `config.rs` — `ClientConfig` (TOML format):
 
 ```toml
-relay = "wss://arps.offgrid.ing"      # WebSocket relay URL
+relay = "wss://arps.offgrid.ing"      # WebSocket relay URL (deprecated, use [[relays]])
 listen = "tcp://127.0.0.1:7700"       # Local API bind address
+
+# Multi-relay (recommended for cross-relay communication)
+# relay = "wss://arps.offgrid.ing"     # legacy single-relay (still works)
+[[relays]]
+url = "wss://relay1.example.com"
+# pubkey = "optional-base58-pubkey"     # pin relay identity
+
+[[relays]]
+url = "wss://relay2.example.com"
+
+send_strategy = "fan_out"               # or "sequential"
+
 
 [reconnect]
 initial_delay_ms = 100                # First reconnect delay
@@ -332,7 +375,7 @@ All commands are JSON objects with `"cmd"` field. Responses are single-line JSON
 | **send** | `{"cmd":"send","to":"<base58-pubkey>","payload":"<base64>"}` | `{"status":"sent","error":null}` or `{"status":"error","error":"..."}` |
 | **recv** | `{"cmd":"recv","timeout_ms":5000}` (optional) | `{"from":"<base58>","payload":"<base64>","received_at":"<RFC3339>"}` or `{"error":"..."}` |
 | **identity** | `{"cmd":"identity"}` | `{"identity":"<base58-pubkey>","connected":true/false}` |
-| **status** | `{"cmd":"status"}` | `{"status":"connected"}` (or "connecting", "disconnected") |
+| **status** | `{"cmd":"status"}` | `{"status":"connected","uptime_secs":N,"messages_sent":N,"messages_received":N,"relays":[{"url":"...","status":"connected"},...]}`  |
 | **subscribe** | `{"cmd":"subscribe"}` | Stream of messages, starting with `{"subscribed":true}` |
 | **contact_add** | `{"cmd":"contact_add","name":"Alice","pubkey":"<base58>","notes":"..."}` | `{"status":"added","name":"...","pubkey":"..."}` or `{"error":"..."}` |
 | **contact_remove** | `{"cmd":"contact_remove","name":"Alice"}` or `{"pubkey":"<base58>"}` | `{"status":"removed","name":"...","pubkey":"..."}` or `{"error":"..."}` |
@@ -353,8 +396,19 @@ Full TOML schema with defaults:
 
 ```toml
 # Required fields (have defaults)
-relay = "wss://arps.offgrid.ing"
+relay = "wss://arps.offgrid.ing"           # deprecated, use [[relays]] below
 listen = "tcp://127.0.0.1:7700"
+
+# Multi-relay configuration (recommended)
+[[relays]]
+url = "wss://relay1.example.com"
+# pubkey = "optional-base58-pubkey"        # pin relay identity
+
+[[relays]]
+url = "wss://relay2.example.com"
+
+send_strategy = "fan_out"                  # "fan_out" or "sequential"
+
 
 [reconnect]
 initial_delay_ms = 100
@@ -381,7 +435,9 @@ session_key = ""
 ```
 
 Validation rules:
-- `relay` must start with `ws://` or `wss://`
+- `relay` (deprecated) or `relays[].url` must start with `ws://` or `wss://`
+- At least one relay must be configured (via `relay` or `relays`)
+- If both `relay` and `relays` are set, `relays` takes precedence
 - `listen` must start with `tcp://` or `unix://`
 - `reconnect.initial_delay_ms` must be > 0
 - `reconnect.max_delay_ms` must be >= `initial_delay_ms`

@@ -33,3 +33,20 @@ pub mod rejection_reason {
     /// Proof-of-work nonce failed verification.
     pub const INVALID_POW: u8 = 0x04;
 }
+
+/// Reserved frame type range for future relay federation.
+///
+/// These frame types are NOT implemented in ARP v2.
+/// They are reserved to prevent future wire protocol conflicts.
+/// Do not use values 0x10-0x1F for other purposes.
+pub mod reserved_federation {
+    /// Relay-to-relay message forwarding (future).
+    pub const FEDERATED_ROUTE: u8 = 0x10;
+    /// Relay-to-relay status response (future).
+    pub const FEDERATED_STATUS: u8 = 0x11;
+    /// Pubkey presence announcement between relays (future).
+    pub const PRESENCE_ANNOUNCE: u8 = 0x12;
+    /// Pubkey presence withdrawal between relays (future).
+    pub const PRESENCE_WITHDRAW: u8 = 0x13;
+    // 0x14-0x1F: reserved for additional federation frames
+}

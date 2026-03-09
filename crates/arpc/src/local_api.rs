@@ -1,5 +1,5 @@
 use crate::contacts::ContactStore;
-use crate::relay::{ConnStatus, DaemonStats, InboundMsg, OutboundMsg};
+use crate::relay::{ConnStatus, DaemonStats, InboundMsg, OutboundMsg, RelayInfo};
 use arp_common::Pubkey;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -77,11 +77,13 @@ struct StatusResponse {
     uptime_secs: u64,
     messages_sent: u64,
     messages_received: u64,
+    relays: Vec<RelayInfo>,
 }
 
 /// # Errors
 ///
 /// Returns an error if binding the local API listener fails.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_local_api(
     listen: &str,
     outbox_tx: mpsc::Sender<OutboundMsg>,
@@ -90,11 +92,13 @@ pub async fn start_local_api(
     pubkey: Pubkey,
     contacts: Arc<ContactStore>,
     stats: Arc<DaemonStats>,
+    relay_statuses: Vec<(String, watch::Receiver<ConnStatus>)>,
 ) -> anyhow::Result<()> {
     if let Some(_path) = listen.strip_prefix("unix://") {
         #[cfg(unix)]
         {
             let path = _path;
+            // bind() applies process-umask defaults first; tighten to 0o600 immediately after.
             let listener = tokio::net::UnixListener::bind(path)?;
 
             use std::os::unix::fs::PermissionsExt;
@@ -109,11 +113,20 @@ pub async fn start_local_api(
                 let status_rx = status_rx.clone();
                 let contacts = contacts.clone();
                 let stats = stats.clone();
+                let relay_statuses = relay_statuses.clone();
                 let (reader, writer) = stream.into_split();
 
                 tokio::spawn(async move {
                     if let Err(e) = handle_local_client(
-                        reader, writer, outbox_tx, inbox_tx, status_rx, pubkey, &contacts, &stats,
+                        reader,
+                        writer,
+                        outbox_tx,
+                        inbox_tx,
+                        status_rx,
+                        pubkey,
+                        &contacts,
+                        &stats,
+                        &relay_statuses,
                     )
                     .await
                     {
@@ -135,11 +148,20 @@ pub async fn start_local_api(
             let status_rx = status_rx.clone();
             let contacts = contacts.clone();
             let stats = stats.clone();
+            let relay_statuses = relay_statuses.clone();
             let (reader, writer) = stream.into_split();
 
             tokio::spawn(async move {
                 if let Err(e) = handle_local_client(
-                    reader, writer, outbox_tx, inbox_tx, status_rx, pubkey, &contacts, &stats,
+                    reader,
+                    writer,
+                    outbox_tx,
+                    inbox_tx,
+                    status_rx,
+                    pubkey,
+                    &contacts,
+                    &stats,
+                    &relay_statuses,
                 )
                 .await
                 {
@@ -164,6 +186,7 @@ async fn handle_local_client<R, W>(
     pubkey: Pubkey,
     contacts: &ContactStore,
     stats: &DaemonStats,
+    relay_statuses: &[(String, watch::Receiver<ConnStatus>)],
 ) -> anyhow::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -229,11 +252,26 @@ where
                     ConnStatus::Connecting => "connecting",
                     ConnStatus::Connected => "connected",
                 };
+                let relays: Vec<RelayInfo> = relay_statuses
+                    .iter()
+                    .map(|(url, rx)| {
+                        let st = match *rx.borrow() {
+                            ConnStatus::Disconnected => "disconnected",
+                            ConnStatus::Connecting => "connecting",
+                            ConnStatus::Connected => "connected",
+                        };
+                        RelayInfo {
+                            url: url.clone(),
+                            status: st.to_string(),
+                        }
+                    })
+                    .collect();
                 let resp = StatusResponse {
                     status: status.to_string(),
                     uptime_secs: stats.uptime_secs(),
                     messages_sent: stats.messages_sent.load(Ordering::Relaxed),
                     messages_received: stats.messages_received.load(Ordering::Relaxed),
+                    relays,
                 };
                 serde_json::to_string(&resp)? + "\n"
             }
@@ -532,6 +570,7 @@ mod tests {
                 pubkey,
                 &test_contacts(),
                 &stats,
+                &[],
             )
             .await
             .unwrap();
@@ -563,6 +602,7 @@ mod tests {
                 pubkey,
                 &test_contacts(),
                 &stats,
+                &[],
             )
             .await
             .unwrap();
@@ -595,6 +635,7 @@ mod tests {
                 pubkey,
                 &test_contacts(),
                 &stats,
+                &[],
             )
             .await
             .unwrap();
@@ -626,6 +667,7 @@ mod tests {
                 pubkey,
                 &test_contacts(),
                 &stats,
+                &[],
             )
             .await
             .unwrap();
@@ -654,6 +696,7 @@ mod tests {
                 pubkey,
                 &test_contacts(),
                 &stats,
+                &[],
             )
             .await
             .unwrap();

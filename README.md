@@ -128,7 +128,17 @@ arpc keygen                                   # generate new keypair (replaces i
 
 ```toml
 # ~/.config/arpc/config.toml
+
+# Single relay (simple setup)
 relay = "wss://arps.offgrid.ing"
+
+# Multi-relay (for cross-relay communication)
+# [[relays]]
+# url = "wss://relay1.example.com"
+# [[relays]]
+# url = "wss://relay2.example.com"
+# send_strategy = "fan_out"  # or "sequential"
+
 listen = "tcp://127.0.0.1:7700"
 
 [encryption]
@@ -161,10 +171,16 @@ arps --listen 0.0.0.0:9000 --pow-difficulty 0 --max-conns 50000
 Point clients at your relay:
 
 ```bash
-# Via config
+# Via config (single relay)
 relay = "wss://your-relay.example.com"
 
-# Via env
+# Via config (multiple relays)
+# [[relays]]
+# url = "wss://relay1.example.com"
+# [[relays]]
+# url = "wss://relay2.example.com"
+
+# Via env (single relay)
 ARPC_RELAY="ws://192.168.1.100:8080" arpc start
 
 # Via install script

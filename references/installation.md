@@ -262,9 +262,16 @@ mkdir -p ~/.config/arpc
 # Check if config exists, create minimal one if not
 if [ ! -f ~/.config/arpc/config.toml ]; then
 cat > ~/.config/arpc/config.toml <<'EOF'
-relay = "wss://arps.offgrid.ing"
+relay = "wss://arps.offgrid.ing"  # single relay (or use [[relays]] for multi-relay)
 listen = "tcp://127.0.0.1:7700"
 EOF
+
+# For multi-relay (cross-relay communication), replace the above with:
+# [[relays]]
+# url = "wss://relay1.example.com"
+# [[relays]]
+# url = "wss://relay2.example.com"
+# send_strategy = "fan_out"
 fi
 
 # Backup existing config

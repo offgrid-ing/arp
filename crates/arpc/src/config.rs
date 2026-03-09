@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// CLI interface for the client daemon.
@@ -94,17 +94,47 @@ pub enum ContactAction {
     List,
 }
 
+/// Per-relay connection configuration.
+#[derive(Debug, Deserialize, Clone)]
+pub struct RelayConfig {
+    /// WebSocket URL of the relay server.
+    pub url: String,
+    /// Optional relay server public key (base58) for identity pinning.
+    #[serde(default)]
+    pub pubkey: Option<String>,
+}
+
+/// Send strategy for multi-relay mode.
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SendStrategy {
+    /// Send ROUTE to all connected relays simultaneously.
+    #[default]
+    FanOut,
+    /// Try relays one by one until DELIVERED or all exhausted.
+    Sequential,
+}
+
 /// Runtime configuration loaded from file, env, and defaults.
 #[derive(Debug, Deserialize, Clone)]
 pub struct ClientConfig {
-    /// WebSocket URL of the relay server.
+    /// DEPRECATED: Single relay URL. Use `relays` instead.
+    /// Kept for backward compatibility — normalized into `relays` on load.
+    #[serde(default)]
     pub relay: String,
+    /// List of relay servers to connect to.
+    /// When empty, falls back to the `relay` field for backward compatibility.
+    #[serde(default)]
+    pub relays: Vec<RelayConfig>,
     /// Local API listen address (`tcp://` or `unix://`).
     pub listen: String,
-    /// Optional relay server public key (base58) for identity pinning.
-    /// When set, the client verifies the relay's pubkey from the CHALLENGE frame.
+    /// DEPRECATED: Use `relays[].pubkey` instead.
+    /// When set with the legacy `relay` field, applies to that relay.
     #[serde(default)]
     pub relay_pubkey: Option<String>,
+    /// Send strategy for outbound messages in multi-relay mode.
+    #[serde(default)]
+    pub send_strategy: SendStrategy,
     /// Reconnection backoff settings.
     pub reconnect: ReconnectConfig,
     /// WebSocket keepalive ping settings.
@@ -219,6 +249,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             relay: "wss://arps.offgrid.ing".to_string(),
+            relays: Vec::new(),
             listen: "tcp://127.0.0.1:7700".to_string(),
             reconnect: ReconnectConfig::default(),
             keepalive: KeepaliveConfig::default(),
@@ -226,6 +257,7 @@ impl Default for ClientConfig {
             webhook: WebhookConfig::default(),
             bridge: BridgeConfig::default(),
             relay_pubkey: None,
+            send_strategy: SendStrategy::default(),
             broadcast_capacity: default_broadcast_capacity(),
             allow_remote_api: false,
         }
@@ -233,17 +265,46 @@ impl Default for ClientConfig {
 }
 
 impl ClientConfig {
+    /// Return the normalized list of relay configurations.
+    ///
+    /// If `relays` is non-empty, returns it directly.
+    /// If `relays` is empty, builds a single-entry list from the legacy `relay` field.
+    #[must_use]
+    pub fn normalized_relays(&self) -> Vec<RelayConfig> {
+        if !self.relays.is_empty() {
+            return self.relays.clone();
+        }
+        vec![RelayConfig {
+            url: self.relay.clone(),
+            pubkey: self.relay_pubkey.clone(),
+        }]
+    }
+
     /// Validates the configuration values are within acceptable bounds.
     /// Returns Ok(()) if valid, Err with description otherwise.
     pub fn validate(&self) -> Result<(), String> {
-        if self.relay.is_empty() {
-            return Err("relay URL must not be empty".to_string());
+        // Relay validation: either `relay` or `relays` must provide at least one URL.
+        let relays = self.normalized_relays();
+        if relays.is_empty() {
+            return Err("at least one relay URL is required".to_string());
         }
-        if !(self.relay.starts_with("ws://") || self.relay.starts_with("wss://")) {
-            return Err(format!(
-                "relay URL must start with ws:// or wss://, got: {}",
-                self.relay
-            ));
+        for (i, r) in relays.iter().enumerate() {
+            if r.url.is_empty() {
+                return Err(format!("relay[{i}]: URL must not be empty"));
+            }
+            if !(r.url.starts_with("ws://") || r.url.starts_with("wss://")) {
+                return Err(format!(
+                    "relay[{i}]: URL must start with ws:// or wss://, got: {}",
+                    r.url
+                ));
+            }
+            if let Some(ref pk) = r.pubkey {
+                if arp_common::base58::decode_pubkey(pk).is_err() {
+                    return Err(format!(
+                        "relay[{i}]: pubkey must be valid base58 Ed25519 key, got: {pk}"
+                    ));
+                }
+            }
         }
 
         if self.listen.is_empty() {
@@ -312,14 +373,21 @@ impl ClientConfig {
             }
         }
 
-        // Validate relay_pubkey if set
+        // Validate legacy relay_pubkey if set directly (outside relays[])
         if let Some(ref pk) = self.relay_pubkey {
             if arp_common::base58::decode_pubkey(pk).is_err() {
                 return Err(format!(
-                    "relay_pubkey must be a valid base58-encoded Ed25519 public key, got: {}",
-                    pk
+                    "relay_pubkey must be a valid base58-encoded Ed25519 public key, got: {pk}"
                 ));
             }
+        }
+
+        #[cfg(not(feature = "encryption"))]
+        if self.encryption.enabled {
+            return Err(
+                "encryption.enabled = true but arpc was built without the 'encryption' feature. Rebuild with: cargo build --features encryption"
+                    .to_string(),
+            );
         }
 
         Ok(())
@@ -480,7 +548,7 @@ mod tests {
         assert!(config
             .validate()
             .unwrap_err()
-            .contains("relay URL must not be empty"));
+            .contains("URL must not be empty"));
     }
 
     #[test]
@@ -554,5 +622,39 @@ mod tests {
         config.webhook.enabled = true;
         config.webhook.token = "my-secret-token".to_string();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_normalized_relays_from_legacy_relay() {
+        let config = ClientConfig::default();
+        let relays = config.normalized_relays();
+        assert_eq!(relays.len(), 1);
+        assert_eq!(relays[0].url, "wss://arps.offgrid.ing");
+        assert!(relays[0].pubkey.is_none());
+    }
+
+    #[test]
+    fn test_normalized_relays_from_explicit_relays() {
+        let mut config = ClientConfig::default();
+        config.relays = vec![
+            RelayConfig {
+                url: "wss://relay1.example.com".to_string(),
+                pubkey: None,
+            },
+            RelayConfig {
+                url: "wss://relay2.example.com".to_string(),
+                pubkey: None,
+            },
+        ];
+        let relays = config.normalized_relays();
+        assert_eq!(relays.len(), 2);
+        assert_eq!(relays[0].url, "wss://relay1.example.com");
+        assert_eq!(relays[1].url, "wss://relay2.example.com");
+    }
+
+    #[test]
+    fn test_send_strategy_default_is_fan_out() {
+        let config = ClientConfig::default();
+        assert_eq!(config.send_strategy, SendStrategy::FanOut);
     }
 }

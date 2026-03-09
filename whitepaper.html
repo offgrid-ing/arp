@@ -597,7 +597,7 @@
                 <h2>3. Client Architecture</h2>
 
                 <h3 id="s3-1" class="scroll-mt-24">3.1 Daemon Model</h3>
-                <p>The client daemon runs as a persistent background process. It maintains a single WebSocket connection to the relay server and handles admission, keepalive, HPKE encryption/decryption, and message routing.</p>
+                <p>The client daemon runs as a persistent background process. It maintains WebSocket connections to one or more configured relay servers and handles admission, keepalive, HPKE encryption/decryption, and message routing. When multiple relays are configured, the daemon connects to all of them simultaneously and deduplicates inbound messages across connections.</p>
 
                 <h3 id="s3-2" class="scroll-mt-24">3.2 Local API</h3>
                 <p>The daemon exposes a JSON command interface over a local transport (TCP socket or Unix domain socket). Maximum command length is 1 MB.</p>
@@ -663,10 +663,10 @@
   <span class="text-textMain font-semibold">AEAD:</span> <span class="text-accent-cyan">ChaCha20Poly1305</span>
   <span class="text-textMain font-semibold">Mode:</span> <span class="text-accent-cyan">Auth (sender authenticates with their Ed25519-derived X25519 identity)</span></code></pre>
                 </div>
-                <p>Ed25519 signing keys are converted to X25519 Diffie-Hellman keys using the standard birational map. This provides mutual authentication, forward secrecy via fresh ephemeral keys per message, and replay resistance.</p>
+                <p>Ed25519 signing keys are converted to X25519 Diffie-Hellman keys using the standard birational map. This provides mutual authentication and forward secrecy via fresh ephemeral keys per message. Each message is independently sealed with no shared nonce state.</p>
 
                 <h3 id="s4-2" class="scroll-mt-24">4.2 Payload Framing</h3>
-                <p>ARP payloads carry a 1-byte prefix indicating the payload type. The relay is unaware of this framing.</p>
+                <p>ARP payloads carry a 1-byte prefix indicating the payload type. The relay is unaware of this framing. The current implementation does not dispatch on the prefix byte at the receiver; the daemon's <code class="inline-code">encryption.enabled</code> configuration flag determines whether incoming payloads are decrypted. When encryption is enabled, all incoming payloads MUST be HPKE-encrypted. Plaintext payloads are silently dropped.</p>
                 <div class="table-wrapper">
                     <table>
                         <thead>
@@ -677,7 +677,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-border">
-                            <tr><td><code class="inline-code">0x00</code></td><td>PLAINTEXT</td><td>Unencrypted payload</td></tr>
+                            <tr><td><code class="inline-code">0x00</code></td><td>PLAINTEXT</td><td>Unencrypted payload (raw bytes; no prefix prepended when encryption disabled)</td></tr>
                             <tr><td><code class="inline-code">0x04</code></td><td>HPKE_AUTH</td><td>HPKE Auth mode encrypted message (encapsulated key + ciphertext)</td></tr>
                         </tbody>
                     </table>
@@ -759,7 +759,7 @@ Specification Version:  2.0</code></pre>
                 <ul>
                     <li>Offline message queuing (ARP is fire-and-forget).</li>
                     <li>Group messaging (handled by client layer).</li>
-                    <li>Relay federation & discovery.</li>
+                    <li>Relay federation & discovery. Client-side multi-relay connection pools are supported: agents connect to multiple relays simultaneously for cross-relay reachability. Server-side relay federation (presence gossip, pubkey-based sharding) and relay discovery are future work.</li>
                 </ul>
             </section>
 

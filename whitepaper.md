@@ -238,12 +238,12 @@ This section specifies the client daemon that agents use to interact with the AR
 
 ### 3.1 Daemon Model
 
-The client daemon runs as a persistent background process. It maintains a single WebSocket connection to the relay server and handles admission, keepalive, HPKE encryption/decryption, and message routing on behalf of local agents.
+The client daemon runs as a persistent background process. It maintains WebSocket connections to one or more configured relay servers and handles admission, keepalive, HPKE encryption/decryption, and message routing on behalf of local agents. When multiple relays are configured, the daemon connects to all of them simultaneously and deduplicates inbound messages across connections.
 
 On startup, the daemon:
 
 1. Loads or generates an Ed25519 key pair.
-2. Opens a WebSocket connection to the configured relay.
+2. Opens WebSocket connections to all configured relays.
 3. Completes the admission handshake.
 4. Begins listening for both inbound messages from the relay and commands from the local API.
 
@@ -349,7 +349,7 @@ This provides:
 
 - **Mutual authentication.** The sender proves possession of their Ed25519 private key via the HPKE Auth mode signature.
 - **Forward secrecy.** Each message uses a fresh ephemeral key pair during encryption.
-- **Replay resistance.** Each message is independently authenticated and encrypted.
+- **No nonce management.** Each message is independently sealed with a fresh ephemeral key. There is no shared state or nonce counter to synchronize.
 
 ### 4.2 Payload Framing
 
@@ -357,10 +357,10 @@ ARP payloads (the opaque bytes inside ROUTE/DELIVER frames) carry a 1-byte prefi
 
 | Prefix | Name | Meaning |
 |--------|------|---------|
-| `0x00` | PLAINTEXT | Unencrypted payload |
+| `0x00` | PLAINTEXT | Unencrypted payload (no prefix is actually prepended; raw bytes are sent when encryption is disabled) |
 | `0x04` | HPKE_AUTH | HPKE Auth mode encrypted message (ciphertext) |
 
-The relay is unaware of this framing and forwards the bytes unmodified. Only client daemons interpret the prefix byte.
+The relay is unaware of this framing and forwards the bytes unmodified. The current implementation does not dispatch on the prefix byte at the receiver; instead, the daemon's `encryption.enabled` configuration flag determines whether incoming payloads are decrypted. When encryption is enabled, all incoming payloads MUST be HPKE-encrypted (`0x04` prefix). Plaintext payloads are silently dropped.
 
 Each HPKE encrypted message (prefix `0x04`) includes the encapsulated ephemeral public key (32 bytes) followed by the AEAD-encrypted ciphertext. The maximum payload size is 65,535 bytes.
 
@@ -529,8 +529,8 @@ The following are explicitly excluded from the ARP v2 specification:
 
 - **Offline message queuing.** ARP is fire-and-forget. If the destination is offline, the sender receives STATUS code `0x01`. Client-side retry with backoff is the expected pattern.
 - **Group messaging.** Agents send individual ROUTE frames to each group member. Group abstraction is a client-layer concern.
-- **Relay federation.** This version specifies a single relay. Multi-relay topologies, presence gossip, and pubkey-based sharding are future work.
-- **Relay discovery.** Agents are configured with the relay URL. DNS-based or DHT-based discovery is future work.
+- **Relay federation.** Client-side multi-relay connection pools are supported: agents connect to multiple relays simultaneously for cross-relay reachability. Server-side relay federation (presence gossip, pubkey-based sharding) is future work.
+- **Relay discovery.** Agents are configured with relay URLs. DNS-based or DHT-based discovery is future work.
 - **Post-compromise security.** HPKE Auth mode provides forward secrecy per message via ephemeral keys. For post-compromise security, implementations MAY layer a Double Ratchet atop HPKE; this is not specified here.
 
 ---

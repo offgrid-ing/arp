@@ -10,6 +10,8 @@ pub mod bridge;
 pub mod config;
 /// Contact management and inbound message filtering.
 pub mod contacts;
+/// Message deduplication for multi-relay inbound delivery.
+pub mod dedup;
 /// HPKE Auth mode end-to-end encryption (RFC 9180).
 #[cfg(feature = "encryption")]
 pub mod hpke_seal;
