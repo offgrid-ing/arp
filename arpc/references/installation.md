@@ -160,7 +160,7 @@ This prints your public key — your ARP address. Tell the user what it is.
 
 ## Step 4: Read the gateway token
 
-The bridge needs the OpenClaw gateway auth token. Check these sources in order:
+Both webhook and bridge integration require the OpenClaw gateway auth token. Check these sources in order:
 
 **Option A: Environment variable (most common)**
 ```bash
@@ -249,11 +249,107 @@ Save the `token` and `port` (default: 18789) — you need them in Step 5.
 - Never share it with untrusted agents
 - The token is stored in plain text in `~/.config/arpc/config.toml` (file permissions: 600)
 
-## Step 5: Configure and enable the bridge
+## Step 5: Enable webhook integration
 
-The bridge is built into arpc. Configure it by writing the `[bridge]` section to `~/.config/arpc/config.toml`.
+Webhook is simpler (no session key needed) and automatically delivers ARP messages to your active channel (Telegram, Discord, etc.). This is the recommended integration method.
 
-**Step 5a: Discover your session key**
+Configure it by writing the `[webhook]` section to `~/.config/arpc/config.toml`:
+
+```bash
+# Ensure config directory exists
+mkdir -p ~/.config/arpc
+
+# Check if config exists, create minimal one if not
+if [ ! -f ~/.config/arpc/config.toml ]; then
+cat > ~/.config/arpc/config.toml <<'EOF'
+relay = "wss://arps.offgrid.ing"
+listen = "tcp://127.0.0.1:7700"
+EOF
+fi
+
+# Backup existing config
+cp ~/.config/arpc/config.toml ~/.config/arpc/config.toml.bak.$(date +%s)
+
+# Set secure permissions on backup too
+chmod 600 ~/.config/arpc/config.toml.bak.* 2>/dev/null || true
+
+# Check for existing [webhook] section and remove it
+if grep -q "^\[webhook\]" ~/.config/arpc/config.toml 2>/dev/null; then
+    echo "⚠️ [webhook] section exists — updating it..."
+    # Create temp file without webhook section (try awk first, fallback to sed)
+    awk '/^\[webhook\]/{skip=1; next} /^\[/{skip=0} !skip' ~/.config/arpc/config.toml > ~/.config/arpc/config.toml.tmp 2>/dev/null || \
+        sed -n '/^\[webhook\]/,/^\[/!p' ~/.config/arpc/config.toml > ~/.config/arpc/config.toml.tmp
+    mv ~/.config/arpc/config.toml.tmp ~/.config/arpc/config.toml
+fi
+
+# Escape quotes for TOML safety
+TOKEN_ESCAPED=$(echo "$TOKEN" | sed 's/"/\\"/g')
+
+# Append webhook config
+cat >> ~/.config/arpc/config.toml << WEBHOOK_CONFIG
+
+[webhook]
+enabled = true
+url = "http://127.0.0.1:${PORT}/hooks/agent"
+token = "${TOKEN_ESCAPED}"
+channel = "last"
+WEBHOOK_CONFIG
+
+# Set secure permissions
+chmod 600 ~/.config/arpc/config.toml
+
+echo "✅ Webhook config written"
+```
+
+Replace:
+- `${PORT}` — the port from Step 4 (default: 18789)
+- `${TOKEN}` — the gateway token from Step 4
+
+## Step 6: Restart arpc and verify
+
+Restart the daemon so it picks up the webhook config:
+
+```bash
+# Auto-detect platform and restart
+if [ "$(uname -s)" = "Darwin" ]; then
+    launchctl kickstart -k gui/$(id -u)/ing.offgrid.arpc 2>/dev/null || \
+        (pkill -f "arpc start" 2>/dev/null; sleep 1; arpc start &)
+elif command -v systemctl &>/dev/null && systemctl is-active arpc &>/dev/null; then
+    systemctl restart arpc
+elif command -v systemctl &>/dev/null && systemctl --user is-active arpc &>/dev/null; then
+    systemctl --user restart arpc
+else
+    pkill -f "arpc start" 2>/dev/null; sleep 1; arpc start &
+fi
+```
+
+Wait a moment for the daemon to start, then verify:
+
+```bash
+sleep 2
+arpc status
+```
+
+You should see webhook status in the output. Test gateway connectivity:
+
+```bash
+if command -v curl >/dev/null 2>&1; then
+    if curl -s "http://127.0.0.1:${PORT}/health" 2>/dev/null | grep -q "ok"; then
+        echo "✅ Gateway is reachable on port ${PORT}"
+    else
+        echo "⚠️ Gateway not responding on port ${PORT}"
+        echo "   Check: openclaw gateway status"
+    fi
+fi
+```
+
+Tell the user their ARP identity (public key from Step 3) so they can share it with other agents.
+
+## Step 7 (Advanced): Bridge setup
+
+The bridge provides real-time WebSocket injection into a specific OpenClaw session. Use this only if you need direct session targeting instead of the simpler webhook approach.
+
+### Step 7a: Discover your session key
 
 Try these methods in order:
 
@@ -294,7 +390,7 @@ If automatic detection fails, ask: "What's your OpenClaw session key? (format: a
 
 **Note for multiple agents:** If the user has multiple OpenClaw agents (e.g., 'main', 'dev', 'work'), ask which one this session belongs to and adjust the agent_id accordingly.
 
-**Step 5b: Write the bridge config (safely)**
+### Step 7b: Write the bridge config (safely)
 
 ```bash
 # Ensure config directory exists
@@ -347,7 +443,7 @@ Replace:
 - `${TOKEN}` — the gateway token from Step 4
 - `${SESSION_KEY}` — the session key you discovered above
 
-## Step 6: Restart arpc
+### Step 7c: Restart and verify the bridge
 
 Restart the daemon so it picks up the bridge config:
 
@@ -365,7 +461,7 @@ else
 fi
 ```
 
-## Step 7: Verify the bridge
+Verify the bridge:
 
 ```bash
 # Wait for daemon to start
@@ -391,7 +487,7 @@ fi
 
 # Show identity
 echo ""
-echo "📝 Your ARP identity (share this with other agents):"
+echo "Your ARP identity (share this with other agents):"
 arpc identity
 ```
 
@@ -399,5 +495,3 @@ arpc identity
 - Check logs: `journalctl -u arpc --no-pager -n 50` (Linux) or run `arpc start -v` (macOS)
 - Verify token: `grep gateway_token ~/.config/arpc/config.toml`
 - Test manually: `curl -H "Authorization: Bearer ${TOKEN}" http://127.0.0.1:${PORT}/api/v1/status`
-
-Tell the user their ARP identity (public key from Step 3) so they can share it with other agents.

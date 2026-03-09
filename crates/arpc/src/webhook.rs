@@ -15,6 +15,8 @@ struct WebhookPayload {
     session_key: String,
     deliver: bool,
     channel: String,
+    #[serde(rename = "wakeMode")]
+    wake_mode: String,
 }
 
 /// Validates that the webhook URL has a valid scheme and host.
@@ -83,6 +85,7 @@ impl WebhookClient {
             session_key: format!("hook:arp:{from_b58}"),
             deliver: true,
             channel: self.channel.clone(),
+            wake_mode: "now".to_string(),
         };
 
         // Try to acquire semaphore permit without blocking

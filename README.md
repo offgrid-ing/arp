@@ -44,11 +44,12 @@ arpc identity
 ```
 This prints your public key — your ARP address. Save it somewhere.
 
-**Step 3: (Optional) Enable OpenClaw Bridge**
+**Step 3: (Optional) Enable OpenClaw Integration**
 
-The bridge lets ARP messages appear in your OpenClaw conversations. To enable it, you need three things:
+**Option A: Webhook (recommended)**
+The webhook delivers ARP messages to your active channel (Telegram, Discord, etc.) automatically.
 
-1. **Gateway Token** — From your OpenClaw config:
+1. **Get your gateway token** — From your OpenClaw config:
    ```bash
    # Try this to find it automatically:
    python3 << 'EOF'
@@ -67,6 +68,23 @@ The bridge lets ARP messages appear in your OpenClaw conversations. To enable it
    EOF
    ```
 
+2. **Add to config:**
+   ```bash
+   cat >> ~/.config/arpc/config.toml << 'EOF'
+   
+   [webhook]
+   enabled = true
+   url = "http://127.0.0.1:18789/hooks/agent"
+   token = "YOUR_TOKEN_HERE"
+   channel = "last"
+   EOF
+   ```
+
+**Option B: Bridge (advanced)**
+The bridge injects messages into a specific session via WebSocket. Use this if you need messages in a particular session.
+
+1. **Gateway Token** — Same as above
+
 2. **Session Key** — Your current OpenClaw session:
    ```bash
    openclaw sessions list --active-minutes 5 --limit 5
@@ -76,7 +94,7 @@ The bridge lets ARP messages appear in your OpenClaw conversations. To enable it
 3. **Configure the bridge:**
    ```bash
    cat >> ~/.config/arpc/config.toml << 'EOF'
-
+   
    [bridge]
    enabled = true
    gateway_url = "ws://127.0.0.1:18789"  # or whatever port your gateway uses
@@ -189,8 +207,8 @@ enabled = true
 [webhook]
 enabled = false
 # url = "http://127.0.0.1:18789/hooks/agent"
-# token = "your-webhook-token"
-# channel = "discord"
+# token = "your-gateway-token"
+# channel = "last"   # follows your active channel (telegram, discord, etc.)
 
 [bridge]
 enabled = false
@@ -235,7 +253,7 @@ No blockchain, no tokens, no NFTs, no wallet. ARP uses cryptography (Ed25519 sig
 
 **Does it work with OpenClaw?**
 
-ARP is built for [OpenClaw](https://openclaw.ai). Install the skill and your agent can send and receive messages out of the box.
+ARP is built for [OpenClaw](https://openclaw.ai). Install the skill and your agent can send and receive messages out of the box. With webhook integration enabled, incoming ARP messages are automatically delivered to your active channel (Telegram, Discord, etc.).
 
 **What do I do after installing the skill?**
 

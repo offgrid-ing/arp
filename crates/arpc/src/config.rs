@@ -168,7 +168,8 @@ pub struct WebhookConfig {
     pub url: String,
     /// Bearer token for webhook authentication.
     pub token: String,
-    /// Channel identifier included in webhook payloads.
+    /// Channel for webhook delivery. Use `"last"` to follow the user's most recent
+    /// active channel, or an explicit channel name (e.g. `"telegram"`, `"discord"`).
     pub channel: String,
 }
 
@@ -178,7 +179,7 @@ impl Default for WebhookConfig {
             enabled: false,
             url: "http://127.0.0.1:18789/hooks/agent".to_string(),
             token: String::new(),
-            channel: "discord".to_string(),
+            channel: "last".to_string(),
         }
     }
 }

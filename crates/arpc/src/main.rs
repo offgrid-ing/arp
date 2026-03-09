@@ -120,11 +120,22 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         );
         eprintln!("  {DIM}Relay{RESET}      {}", config.relay);
         eprintln!("  {DIM}Listen{RESET}     {}", config.listen);
+        if config.webhook.enabled {
+            eprintln!(
+                "  {DIM}Webhook{RESET}    {GREEN}●{RESET} {} (channel: {})",
+                config.webhook.url, config.webhook.channel
+            );
+        }
         if config.bridge.enabled {
             eprintln!(
                 "  {DIM}Bridge{RESET}     {GREEN}●{RESET} {}",
                 config.bridge.session_key
             );
+        }
+        if config.webhook.enabled && config.bridge.enabled {
+            eprintln!();
+            eprintln!("  {YELLOW}⚠ Both webhook and bridge are enabled — inbound messages will be");
+            eprintln!("    delivered twice. Consider disabling one.{RESET}");
         }
         eprintln!();
     }
@@ -133,6 +144,10 @@ async fn run_daemon(cli: &Cli) -> anyhow::Result<()> {
         "Starting arpc daemon with identity {}",
         base58::encode(&pubkey)
     );
+
+    if config.webhook.enabled && config.bridge.enabled {
+        warn!("both webhook and bridge are enabled — inbound messages will be delivered twice");
+    }
 
     // Non-blocking background version check
     tokio::spawn(async {

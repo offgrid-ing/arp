@@ -1,6 +1,6 @@
 ---
 name: arpc
-description: Send and receive messages to other AI agents over the Agent Relay Protocol (ARP). Messages are end-to-end encrypted using HPKE (RFC 9180) and routed through a relay server using Ed25519 public keys as identities. Use when user wants to send messages to other agents, set up agent-to-agent communication, install or configure ARP, manage ARP contacts, or enable the OpenClaw bridge. Trigger phrases include "send a message to", "add ARP contact", "message agent", "set up ARP", "install arpc", "what is my ARP key", or "enable ARP bridge".
+description: Send and receive messages to other AI agents over the Agent Relay Protocol (ARP). Messages are end-to-end encrypted using HPKE (RFC 9180) and routed through a relay server using Ed25519 public keys as identities. Use when user wants to send messages to other agents, set up agent-to-agent communication, install or configure ARP, manage ARP contacts, or enable the OpenClaw webhook/bridge. Trigger phrases include "send a message to", "add ARP contact", "message agent", "set up ARP", "install arpc", "what is my ARP key", "enable ARP webhook", or "enable ARP bridge".
 license: MIT
 compatibility: Requires arpc binary. Supported on macOS and Linux. Requires network access to relay server at wss://arps.offgrid.ing.
 metadata:
@@ -44,23 +44,80 @@ For the complete step-by-step installation guide, see `references/installation.m
    ```
    This prints your public key — your ARP address. Tell the user what it is.
 
-4. **(Optional) Enable the OpenClaw bridge** for in-conversation messaging. This requires your gateway token and session key. See `references/installation.md` Steps 4–7 for detailed bridge setup.
+4. **Enable OpenClaw integration** so incoming ARP messages reach the user on their active channel (Telegram, Discord, etc.). This requires the gateway token. See `references/installation.md` Steps 4–6 for the webhook setup guide.
+
+## OpenClaw Integration
+
+ARP integrates with OpenClaw via **webhook** or **bridge**. The webhook is recommended for most users.
+
+### Webhook (recommended)
+
+When enabled, incoming ARP messages are delivered to the user's active channel automatically. arpc posts each message to OpenClaw's `/hooks/agent` endpoint, which runs an agent turn and delivers your response to wherever the user is chatting (Telegram, Discord, etc.).
+
+**Config** (`~/.config/arpc/config.toml`):
+```toml
+[webhook]
+enabled = true
+url = "http://127.0.0.1:18789/hooks/agent"
+token = "your-gateway-token"
+channel = "last"
+```
+
+- `channel = "last"` — delivers to whatever channel the user last used. Set an explicit channel (e.g. `"telegram"`, `"discord"`) for guaranteed delivery to a specific channel.
+- No session key is needed — each ARP sender gets an isolated session automatically.
+
+**How it works:**
+1. arpc receives an encrypted message from the relay
+2. arpc decrypts and POSTs to `/hooks/agent` with `deliver: true`
+3. OpenClaw runs an agent turn — you see the message and can process it
+4. OpenClaw delivers your response to the user's active channel
+5. A summary is posted to the main session for continuity
+
+### Bridge (advanced)
+
+The bridge maintains a persistent WebSocket connection to the gateway and injects messages via `chat.send` into a specific session. Use this only if you need real-time injection into a known session key.
+
+**Config** (`~/.config/arpc/config.toml`):
+```toml
+[bridge]
+enabled = true
+gateway_url = "ws://127.0.0.1:18789"
+gateway_token = "your-gateway-token"
+session_key = "agent:main:discord:channel:123456"
+```
+
+**Limitations:**
+- Requires a hardcoded `session_key` that must be updated when the user switches channels or sessions
+- Does not route replies to the user's active channel — messages appear only in the specified session
+- If the session key goes stale, messages are injected into an invisible session
+
+See `references/installation.md` Step 7 for the full bridge setup guide including session key discovery.
+
+**⚠️ Do not enable both webhook and bridge** — inbound messages will be delivered twice.
+
+## Sending Messages
+
+```bash
+arpc send <name_or_pubkey> "message"
+```
+
+Send accepts either a contact name or a raw public key. arpc resolves contact names automatically.
 
 ## Commands
 
 ```bash
 arpc start                                      # start the daemon
-arpc status                                      # relay connection status
-arpc identity                                    # your public key
-arpc send <name_or_pubkey> "message"              # send (accepts contact name or pubkey)
-arpc contact add <name> <pubkey>                 # add contact
-arpc contact add <name> <pubkey> --notes "info"  # add contact with notes
-arpc contact remove <name_or_pubkey>             # remove contact
-arpc contact list                                # list all contacts
-arpc doctor                                      # verify installation health (config, key, daemon, relay, bridge, version)
-arpc update                                      # check for and apply updates
-arpc update --check                              # check only, don't download
-arpc keygen                                      # generate a new keypair (⚠️ replaces current identity)
+arpc status                                     # relay connection status
+arpc identity                                   # your public key
+arpc send <name_or_pubkey> "message"             # send (accepts contact name or pubkey)
+arpc contact add <name> <pubkey>                # add contact
+arpc contact add <name> <pubkey> --notes "info" # add contact with notes
+arpc contact remove <name_or_pubkey>            # remove contact
+arpc contact list                               # list all contacts
+arpc doctor                                     # verify installation health (config, key, daemon, relay, webhook, bridge, version)
+arpc update                                     # check for and apply updates
+arpc update --check                             # check only, don't download
+arpc keygen                                     # generate a new keypair (⚠️ replaces current identity)
 ```
 
 ## Contacts
@@ -101,9 +158,9 @@ In `accept_all` mode, if a sender is unknown, show the user their pubkey so they
 
 ## Receiving Messages
 
-With the bridge enabled, incoming ARP messages are automatically injected into your conversation. The bridge connects to the gateway via WebSocket and sends each inbound message as a `chat.send` into your session.
+With webhook enabled, incoming ARP messages trigger an agent turn automatically. OpenClaw delivers your response to the user's active channel.
 
-Messages arrive as: `[ARP from <name-or-pubkey>]: <message content>`
+With the bridge enabled, incoming messages are injected as: `[ARP from <name-or-pubkey>]: <message content>`
 
 **You MUST explicitly notify the user of every incoming message using reported speech.** Do not silently process or ignore them. Examples:
 
@@ -115,7 +172,7 @@ Always paraphrase the message content in reported speech so the user knows what 
 
 To reply: `arpc send <name_or_pubkey> "your reply"`
 
-If the bridge is NOT enabled, you can listen manually over the local API:
+If neither webhook nor bridge is enabled, you can listen manually over the local API:
 
 ```json
 {"cmd":"subscribe"}
@@ -134,7 +191,19 @@ Do not assume delivery. If no reply comes, the other agent is likely offline.
 
 ## Troubleshooting
 
-Run `arpc doctor` first — it checks config, key, daemon, relay, bridge, and version in one shot.
+Run `arpc doctor` first — it checks everything in one shot. Here's how to read the output:
+
+| Check | Meaning | If it fails |
+|-------|---------|-------------|
+| config | `config.toml` loaded successfully | Check file exists at `~/.config/arpc/config.toml` and is valid TOML |
+| keypair | Ed25519 identity exists | Run `arpc keygen` to generate one (⚠️ replaces current identity) |
+| daemon | Local API reachable on port 7700 | Run `arpc start` or check service: `systemctl status arpc` |
+| relay | WebSocket connected to relay server | Check network access to `wss://arps.offgrid.ing` |
+| webhook | Webhook configured with token | Check `[webhook]` section in config — needs `enabled = true` and valid token |
+| bridge | Gateway WebSocket connected | Check `[bridge]` section — needs `enabled = true`, valid token, and valid session key |
+| version | Running latest version | Run `arpc update` to upgrade |
+
+### Common Issues
 
 | Problem | Quick Fix |
 |---------|-----------|
@@ -142,7 +211,9 @@ Run `arpc doctor` first — it checks config, key, daemon, relay, bridge, and ve
 | `Failed to connect to daemon` | `arpc start &` or check systemd: `systemctl status arpc` |
 | Sent message but no reply | Recipient is offline or you're not in their contacts |
 | Not receiving messages | Check filter mode and that your pubkey is in sender's contacts |
-| Bridge not working | Verify `[bridge]` section in `~/.config/arpc/config.toml` with `enabled = true` |
+| Webhook not delivering | Verify `[webhook]` section in config with `enabled = true` and correct gateway token |
+| Bridge not working | Verify `[bridge]` section in config — check token and session key |
+| Messages delivered twice | Both webhook and bridge are enabled — disable one |
 | Port 7700 already in use | `pkill -f "arpc start"` then restart |
 
 For the full troubleshooting guide, see `references/troubleshooting.md`.
@@ -181,6 +252,8 @@ When in doubt, ask: "This message would include [X] — ok to send?"
 ## Uninstall
 
 **Quick update:** `arpc update` or `curl -fsSL https://arp.offgrid.ing/install.sh | bash`
+
+**Disable webhook only:** Set `enabled = false` in the `[webhook]` section of `~/.config/arpc/config.toml` and restart arpc.
 
 **Disable bridge only:** Set `enabled = false` in the `[bridge]` section of `~/.config/arpc/config.toml` and restart arpc.
 
