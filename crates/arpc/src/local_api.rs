@@ -91,36 +91,39 @@ pub async fn start_local_api(
     contacts: Arc<ContactStore>,
     stats: Arc<DaemonStats>,
 ) -> anyhow::Result<()> {
-    if let Some(path) = listen.strip_prefix("unix://") {
-        let listener = tokio::net::UnixListener::bind(path)?;
-
+    if let Some(_path) = listen.strip_prefix("unix://") {
         #[cfg(unix)]
         {
+            let path = _path;
+            let listener = tokio::net::UnixListener::bind(path)?;
+
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+
+            info!("Local API listening on unix socket: {}", path);
+
+            loop {
+                let (stream, _) = listener.accept().await?;
+                let outbox_tx = outbox_tx.clone();
+                let inbox_tx = inbox_tx.clone();
+                let status_rx = status_rx.clone();
+                let contacts = contacts.clone();
+                let stats = stats.clone();
+                let (reader, writer) = stream.into_split();
+
+                tokio::spawn(async move {
+                    if let Err(e) = handle_local_client(
+                        reader, writer, outbox_tx, inbox_tx, status_rx, pubkey, &contacts, &stats,
+                    )
+                    .await
+                    {
+                        debug!("Client handler error: {}", e);
+                    }
+                });
+            }
         }
-
-        info!("Local API listening on unix socket: {}", path);
-
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let outbox_tx = outbox_tx.clone();
-            let inbox_tx = inbox_tx.clone();
-            let status_rx = status_rx.clone();
-            let contacts = contacts.clone();
-            let stats = stats.clone();
-            let (reader, writer) = stream.into_split();
-
-            tokio::spawn(async move {
-                if let Err(e) = handle_local_client(
-                    reader, writer, outbox_tx, inbox_tx, status_rx, pubkey, &contacts, &stats,
-                )
-                .await
-                {
-                    debug!("Client handler error: {}", e);
-                }
-            });
-        }
+        #[cfg(not(unix))]
+        anyhow::bail!("unix:// sockets are not supported on this platform");
     } else if let Some(addr) = listen.strip_prefix("tcp://") {
         let listener = TcpListener::bind(addr).await?;
         info!("Local API listening on TCP: {}", addr);
