@@ -59,6 +59,9 @@ pub struct Args {
     /// URL to redirect plain-HTTP visitors to. If unset, a neutral landing page is shown.
     #[arg(long, env = "ARPS_REDIRECT_URL")]
     pub redirect_url: Option<String>,
+    /// Maximum pre-authentication connections (DoS protection).
+    #[arg(long, default_value = "1000", env = "ARPS_PRE_AUTH_LIMIT")]
+    pub pre_auth_limit: usize,
 }
 
 /// Runtime configuration derived from [`Args`].
@@ -90,6 +93,8 @@ pub struct ServerConfig {
     pub trusted_proxy_cidrs: Vec<IpNet>,
     /// URL to redirect plain-HTTP visitors to. `None` = show a neutral landing page.
     pub redirect_url: Option<String>,
+    /// Maximum pre-authentication connections (DoS protection).
+    pub pre_auth_limit: usize,
 }
 
 impl ServerConfig {
@@ -116,10 +121,20 @@ impl ServerConfig {
     ///     pow_difficulty: 16,
     ///     trusted_proxy_cidrs: vec![],
     ///     redirect_url: None,
+    ///     pre_auth_limit: 1000,
     /// };
     /// assert!(config.validate().is_ok());
     /// ```
     pub fn validate(&self) -> Result<(), String> {
+        // Pre-auth connection limit
+        if self.pre_auth_limit == 0 {
+            return Err("pre_auth_limit must be greater than 0".to_string());
+        }
+        if self.pre_auth_limit > 100_000 {
+            return Err("pre_auth_limit exceeds reasonable limit (100,000)".to_string());
+        }
+
+        // Max connections must be reasonable
         // Max connections must be reasonable
         if self.max_conns == 0 {
             return Err("max_conns must be greater than 0".to_string());
@@ -203,9 +218,7 @@ impl ServerConfig {
         // Redirect URL — must use http:// or https:// to prevent open-redirect abuse
         if let Some(ref url) = self.redirect_url {
             if !url.starts_with("http://") && !url.starts_with("https://") {
-                return Err(
-                    "redirect_url must use http:// or https:// scheme".to_string(),
-                );
+                return Err("redirect_url must use http:// or https:// scheme".to_string());
             }
         }
         Ok(())
@@ -228,6 +241,7 @@ impl From<Args> for ServerConfig {
             pow_difficulty: args.pow_difficulty,
             trusted_proxy_cidrs: args.trusted_proxy_cidrs,
             redirect_url: args.redirect_url,
+            pre_auth_limit: args.pre_auth_limit,
         }
     }
 }
@@ -251,6 +265,7 @@ mod tests {
             pow_difficulty: 0,
             trusted_proxy_cidrs: vec![],
             redirect_url: None,
+            pre_auth_limit: 1000,
         }
     }
 

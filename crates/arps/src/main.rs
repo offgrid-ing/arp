@@ -20,9 +20,6 @@ use tracing::{info, warn};
 
 use arp_common::style::{BOLD, CYAN, DIM, GREEN, RESET};
 
-/// Maximum number of unauthenticated (pre-admission) connections
-/// This prevents DoS by exhausting file descriptors before authentication
-const MAX_PRE_AUTH_CONNECTIONS: usize = 1000;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -91,7 +88,7 @@ async fn main() -> Result<()> {
         config: config.clone(),
         ip_connections: dashmap::DashMap::new(),
         active_connections: AtomicUsize::new(0),
-        pre_auth_semaphore: Semaphore::new(MAX_PRE_AUTH_CONNECTIONS),
+        pre_auth_semaphore: Semaphore::new(config.pre_auth_limit),
     });
 
     let listener = TcpListener::bind(config.listen).await?;

@@ -28,6 +28,7 @@ pub fn test_config(listen: SocketAddr) -> ServerConfig {
         pow_difficulty: 0,
         trusted_proxy_cidrs: vec![],
         redirect_url: None,
+        pre_auth_limit: 1000,
     }
 }
 pub fn test_config_with_params(
@@ -50,6 +51,7 @@ pub fn test_config_with_params(
         pow_difficulty: 0,
         trusted_proxy_cidrs: vec![],
         redirect_url: None,
+        pre_auth_limit: 1000,
     }
 }
 pub struct TestClient {
