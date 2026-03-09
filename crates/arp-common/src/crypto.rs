@@ -375,8 +375,8 @@ mod tests {
 
     mod proptests {
         use super::*;
-        use proptest::prelude::*;
         use ed25519_dalek::SigningKey;
+        use proptest::prelude::*;
 
         proptest! {
             #[test]

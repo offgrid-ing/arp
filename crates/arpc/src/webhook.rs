@@ -74,7 +74,10 @@ impl WebhookClient {
                 semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_WEBHOOKS)),
             }),
             Err(e) => {
-                warn!("Failed to build webhook HTTP client: {}, disabling webhook", e);
+                warn!(
+                    "Failed to build webhook HTTP client: {}, disabling webhook",
+                    e
+                );
                 None
             }
         }

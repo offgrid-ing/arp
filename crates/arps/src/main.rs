@@ -20,7 +20,6 @@ use tracing::{info, warn};
 
 use arp_common::style::{BOLD, CYAN, DIM, GREEN, RESET};
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();

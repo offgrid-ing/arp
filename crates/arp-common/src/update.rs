@@ -70,8 +70,12 @@ fn is_valid_repo_slug(s: &str) -> bool {
             !owner.is_empty()
                 && !repo.is_empty()
                 && !repo.contains('/')
-                && owner.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-                && repo.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+                && owner
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+                && repo
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
         }
         None => false,
     }
@@ -331,7 +335,9 @@ pub async fn perform_update(name: &str, version: &str) -> Result<(), anyhow::Err
                 if tty {
                     eprintln!("  {DIM}\u{26a0} Could not fetch signature: {e}, proceeding without verification{RESET}");
                 } else {
-                    eprintln!("Warning: could not fetch signature: {e}, proceeding without verification");
+                    eprintln!(
+                        "Warning: could not fetch signature: {e}, proceeding without verification"
+                    );
                 }
             }
         }
@@ -437,7 +443,11 @@ mod tests {
         let key = SigningKey::from_bytes(&seed);
         let sig = key.sign(b"correct data");
         let pubkey = key.verifying_key().to_bytes();
-        assert!(!verify_release_signature(b"wrong data", &sig.to_bytes(), &pubkey));
+        assert!(!verify_release_signature(
+            b"wrong data",
+            &sig.to_bytes(),
+            &pubkey
+        ));
     }
 
     #[test]

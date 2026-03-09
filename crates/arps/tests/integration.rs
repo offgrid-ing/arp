@@ -572,7 +572,12 @@ async fn test_disconnect_during_admission() {
     // Server should still be functional — verify by connecting normally
     let keypair = SigningKey::generate(&mut OsRng);
     let _client = TestClient::connect(&addr, &keypair).await;
-    assert_eq!(state.active_connections.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(
+        state
+            .active_connections
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
 }
 
 #[tokio::test]
@@ -623,7 +628,9 @@ async fn test_rate_limiter_boundary_exact_limit() {
 
     // Send exactly msg_rate messages — all should succeed
     for i in 0..msg_rate {
-        sender.send_message(&receiver.pubkey, format!("msg-{i}").as_bytes()).await;
+        sender
+            .send_message(&receiver.pubkey, format!("msg-{i}").as_bytes())
+            .await;
     }
 
     // All messages should be delivered
@@ -636,5 +643,8 @@ async fn test_rate_limiter_boundary_exact_limit() {
     sender.send_message(&receiver.pubkey, b"over-limit").await;
     // Sender should receive a status frame indicating rate limit
     let status = sender.recv_frame().await;
-    assert!(matches!(status, Frame::Status { .. }), "expected rate limit status");
+    assert!(
+        matches!(status, Frame::Status { .. }),
+        "expected rate limit status"
+    );
 }
