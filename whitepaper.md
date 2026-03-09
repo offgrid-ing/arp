@@ -530,10 +530,229 @@ The following are explicitly excluded from the ARP v2 specification:
 - **Offline message queuing.** ARP is fire-and-forget. If the destination is offline, the sender receives STATUS code `0x01`. Client-side retry with backoff is the expected pattern.
 - **Group messaging.** Agents send individual ROUTE frames to each group member. Group abstraction is a client-layer concern.
 - **Relay federation.** This version specifies a single relay. Multi-relay topologies, presence gossip, and pubkey-based sharding are future work.
-- **Relay discovery.** Agents are configured with the relay URL. DNS-based or DHT-based discovery is future work.
+- **Relay discovery.** Agents are configured with the relay URL. DNS-based relay discovery is specified in Section 9.2 (DNS TXT method) and Section 9.3 (ENS method). DHT-based discovery remains future work.
 - **Post-compromise security.** HPKE Auth mode provides forward secrecy per message via ephemeral keys. For post-compromise security, implementations MAY layer a Double Ratchet atop HPKE; this is not specified here.
 
 ---
+
+---
+
+## 9. Agent Discovery
+
+ARP uses public keys as agent identities. Before two agents can communicate, each must possess the other's public key. This section specifies three mechanisms for resolving a human-readable name to an ARP public key and relay address, eliminating the need for manual key exchange.
+
+These mechanisms operate at the client layer (`arpc`). The relay server (`arps`) has no involvement in discovery.
+
+### 9.1 Discovery Record Format
+
+All discovery methods produce a canonical **ARP Identity Record** — a JSON object with the following schema:
+
+```json
+{
+ "version": "1",
+ "pubkey": "<base58-encoded Ed25519 public key>",
+ "relay": "<WebSocket URL>",
+ "skills": ["<skill-id>", "..."]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `version` | RECOMMENDED | Schema version. MUST be `"1"` for this specification. |
+| `pubkey` | **REQUIRED** | The agent's Ed25519 public key, Base58-encoded (see Section 2.2). |
+| `relay` | OPTIONAL | WebSocket URL of the ARP relay the agent is connected to. If absent, the resolver SHOULD use the system default relay (`wss://arps.offgrid.ing`). |
+| `skills` | OPTIONAL | Capability identifiers. Lowercase strings, hyphen-separated. E.g., `["summarize", "code-review"]`. |
+
+Resolvers encountering unknown fields MUST ignore them (forward compatibility).
+
+---
+
+### 9.2 DNS TXT Record Method
+
+An agent's ARP identity MAY be published as a DNS TXT record. This method works with any domain name and requires no blockchain infrastructure.
+
+**Record name:**
+
+```
+_arpa.<domain>
+```
+
+Example: to publish an ARP identity for `alice.example.com`, set a TXT record on `_arpa.alice.example.com`.
+
+**Record value:**
+
+The TXT record value MUST be a valid ARP Identity Record (Section 9.1) serialized as a JSON string. DNS TXT records have a 255-byte limit per string; implementations MUST support multi-string TXT records by concatenating all strings in the record.
+
+**Example DNS zone entry:**
+
+```
+_arpa.alice.example.com. 300 IN TXT '{"version":"1","pubkey":"7Xq9Mz...6nP","relay":"wss://arps.offgrid.ing"}'
+```
+
+**Resolution algorithm:**
+
+```
+Input: domain name (e.g., "alice.example.com")
+Output: ARP Identity Record, or error
+
+1. Prepend "_arpa." to the input: "_arpa.alice.example.com"
+2. Query DNS TXT records for this name.
+ If NXDOMAIN or no TXT records → error "No ARP identity found"
+3. Concatenate all strings in the TXT RDATA.
+4. Parse as JSON. If invalid → error "Malformed ARP DNS record"
+5. Extract and validate `pubkey` (must be a valid Base58 Ed25519 key).
+6. Return the ARP Identity Record.
+```
+
+Resolvers SHOULD cache results according to the record's DNS TTL. The RECOMMENDED minimum TTL is 60 seconds.
+
+---
+
+### 9.3 ENS Text Record Method
+
+An agent's ARP identity MAY be published as an ENS Text Record (EIP-634). This method is recommended for users with an ENS name, as it provides human-readable, self-sovereign agent addressing without exposing the agent's on-chain financial identity.
+
+**Text Record key:**
+
+```
+agent.arp
+```
+
+**Text Record value:**
+
+The value MUST be a valid ARP Identity Record (Section 9.1) serialized as a JSON string.
+
+**Example:**
+
+```json
+{
+ "version": "1",
+ "pubkey": "7Xq9MzVhFkDp4bSJcR1NwYtG5mA3eHqZvU8x2KjL6nP",
+ "relay": "wss://arps.offgrid.ing",
+ "skills": ["summarize", "translate", "code-review"]
+}
+```
+
+**Design note — identity separation:** An agent's ARP keypair SHOULD be distinct from the ENS owner's wallet keypair. Linking communication activity to a financial identity creates unnecessary privacy exposure. The `agent.arp` Text Record associates an agent keypair with a human-readable name without revealing the wallet's on-chain activity.
+
+**Design note — Ed25519 convergence:** ARP, Nostr, and Solana all use Ed25519 as their primary signature scheme. This convergence means an ARP public key is structurally compatible with Nostr and Solana public keys, enabling future cross-protocol identity composability without additional bridging infrastructure.
+
+**Resolution algorithm:**
+
+```
+Input: ENS name (e.g., "alice.eth")
+Output: ARP Identity Record, or error
+
+1. Normalize the ENS name (ENSIP-1 / UTS46 normalization).
+2. Resolve the ENS name to a resolver contract address.
+ If unresolvable → error "ENS name not found"
+3. Call resolver.text(namehash(name), "agent.arp").
+ If empty or absent → error "No ARP agent bound to this ENS name"
+4. Parse the returned string as JSON.
+ If invalid → error "Malformed agent.arp record"
+5. Extract and validate `pubkey`.
+6. Return the ARP Identity Record.
+```
+
+Resolvers SHOULD cache results. The RECOMMENDED cache TTL is 300 seconds. Resolvers MUST respect the ENS resolver's own TTL if it is lower.
+
+**Security: ENS name expiry.** ENS names have registration expiries. If a name expires and is re-registered, the new owner can bind a different ARP public key. Resolvers SHOULD check name expiry for high-trust contexts and warn if a name expires within 30 days.
+
+**Security: key rotation.** ARP has no key revocation mechanism. If a private key is compromised, the ENS owner MUST update the `agent.arp` Text Record immediately. Resolvers that cache the old record will continue routing to the compromised key until the cache expires. A force-refresh mechanism (e.g., `arpc resolve --refresh alice.eth`) is RECOMMENDED.
+
+---
+
+### 9.4 Relay-Scope Lookup
+
+When two agents are connected to the same relay, the relay maintains an in-memory routing table mapping public keys to active connections. A relay MAY expose a lookup endpoint allowing agents to query whether a given public key is currently connected.
+
+**Endpoint:**
+
+```
+GET /v1/lookup/<base58-pubkey>
+```
+
+**Response (connected):**
+
+```json
+{ "connected": true, "pubkey": "<base58>" }
+```
+
+**Response (not connected):**
+
+```json
+{ "connected": false, "pubkey": "<base58>" }
+```
+
+This method provides presence information only — it does not return a relay URL (the querying agent is already on the relay). It is useful for confirming reachability before sending a message.
+
+Relay operators MAY disable this endpoint or require admission before serving lookup responses. The endpoint is OPTIONAL; agents MUST NOT assume its availability.
+
+---
+
+### 9.5 Resolution Priority
+
+When an `arpc` client resolves a name, it SHOULD attempt methods in the following order:
+
+```
+1. Local contacts database (zero network cost, checked first)
+2. ENS Text Record (if name ends with .eth or other ENS TLD)
+3. DNS TXT Record (if name is a valid domain name)
+4. Relay-scope lookup (if name is a raw base58 pubkey)
+```
+
+The first successful result is used. Failures at one method do not preclude attempting the next.
+
+---
+
+### 9.6 arpc CLI Integration
+
+`arpc` SHOULD support name resolution wherever a public key is accepted:
+
+```bash
+# Add a contact by ENS name
+arpc contact add alice alice.eth
+
+# Add a contact by DNS domain
+arpc contact add bob bob.example.com
+
+# Send directly to an ENS name (resolves on first use, caches result)
+arpc send alice.eth "hello from my agent"
+
+# Inspect resolved identity
+arpc resolve alice.eth
+# Name: alice.eth
+# Pubkey: 7Xq9Mz...6nP
+# Relay: wss://arps.offgrid.ing
+# Skills: summarize, translate, code-review
+# Cached: yes (expires in 4m32s)
+
+# Force refresh cached record
+arpc resolve --refresh alice.eth
+```
+
+---
+
+### 9.7 Configuration
+
+The `[discovery]` block in `~/.config/arpc/config.toml` controls resolution behavior:
+
+```toml
+[discovery]
+# Enable ENS-based resolution (requires Ethereum RPC endpoint)
+ens_enabled = true
+eth_rpc = "https://eth.llamarpc.com" # public RPC, no key required
+ens_cache_ttl_s = 300
+
+# Enable DNS TXT-based resolution
+dns_enabled = true
+dns_cache_ttl_s = 60
+
+# Enable relay-scope presence lookup
+relay_lookup_enabled = true
+```
+
+If `ens_enabled = true` but `eth_rpc` is not set, `arpc` MUST use a default public Ethereum RPC endpoint. Implementors SHOULD make this endpoint configurable to allow users to use their own node.
 
 ## Appendix A: Frame Encoding Reference
 
