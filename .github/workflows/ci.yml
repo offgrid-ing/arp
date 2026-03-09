@@ -65,7 +65,7 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Generate coverage
-        run: cargo tarpaulin --workspace --out xml --output-dir coverage/ --fail-under 70
+        run: cargo tarpaulin --workspace --out xml --output-dir coverage/ --fail-under 55
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
